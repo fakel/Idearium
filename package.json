@@ -1,0 +1,50 @@
+{
+  "name": "idearium",
+  "version": "0.0.1",
+  "description": "Local-first voice-to-vault AI knowledge engine",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "cli": "tsx src/cli.ts",
+    "install:server": "bash scripts/install-server.sh",
+    "doctor": "bash scripts/doctor.sh",
+    "smoke": "bash scripts/smoke.sh",
+    "stt": "bash stt/start.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fakel/Idearium.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/fakel/Idearium/issues"
+  },
+  "homepage": "https://github.com/fakel/Idearium#readme",
+  "dependencies": {
+    "@lancedb/lancedb": "^0.41.0",
+    "chokidar": "^6.0.0",
+    "dotenv": "^18.0.9",
+    "grammy": "^1.46.0",
+    "gray-matter": "^4.0.3",
+    "mammoth": "^1.13.0",
+    "pino": "^10.4.0",
+    "unpdf": "^2.1.0",
+    "word-extractor": "^1.0.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

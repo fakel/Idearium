@@ -1,224 +1,510 @@
 # 💡 Idearium
 
-> **Local-First, Voice-to-Vault AI Knowledge Engine & RAG System**
+**Versión 0.0.1** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
 
-Idearium is an open-source, local-first personal intelligence layer that bridges the gap between spontaneous thought capture (voice notes, quick texts via Telegram) and structured, long-term personal knowledge management in **Obsidian**.
+> Captura por voz, texto o documentos → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
 
-It processes voice audio on-device using consumer GPU hardware, extracts structured metadata via local LLMs, persists plain Markdown files to a local vault, and maintains an embedded **LanceDB** vector index for zero-latency Retrieval-Augmented Generation (RAG) and cognitive active-recall learning.
+Idearium es una capa de memoria personal _local-first_. Le mandas una nota de voz, un texto o un documento por Telegram (o usas el CLI), y el sistema:
+
+1. transcribe el audio con **faster-whisper** en tu GPU,
+2. estructura la captura con un LLM local (**Ollama**) validado con **Zod**,
+3. escribe una nota Markdown con frontmatter en tu **vault de Obsidian**,
+4. la indexa en **LanceDB** con embeddings (`bge-m3`, local o remoto),
+5. te deja consultarla por RAG, agruparla en estudios, generar palacios de memoria y hacer quizzes.
+
+Todo el contenido y los vectores viven en tu máquina por defecto. Si no tienes GPU suficiente, puedes usar **OpenRouter** para chat, embeddings y transcripción con una sola clave.
 
 ---
 
-## 🛈 Executive Overview
-
-- **100% Offline & Private:** All speech-to-text, LLM synthesis, and vector indexing run locally on your own hardware. Zero cloud dependencies, zero subscription fees, and complete data sovereignty.
-- **Plaintext Single Source of Truth:** Every capture is converted into standard Markdown (`.md`) files inside an Obsidian Vault, ensuring no vendor lock-in.
-- **Embedded Vector Database:** Leverages **LanceDB** embedded directly within the Node.js runtime for zero-network-overhead vector search.
-- **On-Demand Memory Palace:** On request, transforms dense conceptual notes into spatial Loci visual routes for active recall study sessions.
-
----
-
-## 🏗 System Architecture
+## Arquitectura
 
 ```text
-[ Telegram Voice / Text ]
-          │
-          ▼
- [ Idearium Engine ] (Node.js + TypeScript)
-          │
-          ├──► 1. Speech-to-Text (Faster-Whisper REST API / GPU CUDA)
-          ├──► 2. LLM Synthesis & JSON Structuring (Ollama / OpenRouter Fallback)
-          └──► 3. Markdown Depository (.md) ──► [ Obsidian Local Vault ]
-                                                         │
-                                                  (File Watcher)
-                                                         │
-                                                         ▼
- [ Local RAG Engine ] (LanceDB Vector DB) ◄──────────────┘
-          │
-          ▼
- [ Interactive Interfaces ]
-          ├──► Telegram RAG Query & Command Handler
-          └──► On-Demand Memory Palace (Loci) & Quiz Sessions
+Telegram (voz/texto/doc) ──┐
+CLI (texto/audio)     ──┴──► IngestController
+                                │
+                                ├─ STT local (faster-whisper, GPU) u OpenRouter   [solo voz]
+                                ├─ LLM Router ── Ollama (local)
+                                │             └─ OpenRouter (remoto)
+                                ├─ Zod valida el JSON y reintenta
+                                ├─ ObsidianService → <vault>/Idearium/*.md
+                                └─ Indexer → embeddings bge-m3 (Ollama u OpenRouter) → LanceDB
+                                                    ▲
+Watcher chokidar (ediciones manuales del vault) ────┘
+
+Consultas: /query + RagService (top-k + contexto citado)
+Estudio:   /cluster, /memorize, /quiz
 ```
 
----
+## Requisitos
 
-## 🛠 Tech Stack & Hardware Requirements
+- **Node.js ≥ 20** y npm.
+- **Ollama** nativo en `127.0.0.1:11434` (solo si usas chat o embeddings locales).
+- **GPU NVIDIA** recomendada para STT (funciona en CPU, más lento). Sin GPU, usa STT remoto.
+- **uv** y **Python 3.12** para el servidor de transcripción local.
+- Un vault de Obsidian (se crea la carpeta si no existe).
+- Opcional: token de bot de Telegram y API key de OpenRouter.
 
-### Software Stack
-- **Runtime & Language:** Node.js, TypeScript
-- **Validation & Schemas:** Zod
-- **Bot Framework:** grammY / Telegraf
-- **Speech-to-Text (STT):** Faster-Whisper Server (`small` / `medium` int8_float16 model)
-- **Local LLM Engine:** Ollama (`Qwen2.5-7B` / `Llama-3.2-3B`)
-- **Cloud Fallback:** OpenRouter API Client
-- **Vector Database:** `@lancedb/lancedb` (Embedded)
-- **Text Embeddings:** `bge-m3` / `multilingual-e5-base`
-- **File System Watcher:** `chokidar`
+Probado en Linux con RTX 3070 (8 GB), driver 580, CUDA 13.4, Node 24 y Ollama 0.35.
 
-### Hardware Target
-- **GPU:** Dedicated GPU with CUDA support (e.g., NVIDIA GTX 1050 Ti 4GB VRAM) for Faster-Whisper acceleration.
-- **CPU & RAM:** Multi-core CPU (8+ cores) and 16GB+ RAM for running Ollama LLM models locally.
+## Instalación
 
----
-
-## 🚀 Quick Start & Environment Setup
-
-### 1. Prerequisites
-Ensure you have Docker and Node.js (v20+) installed on your local host:
 ```bash
-docker --version
-node --version
-```
-
-### 2. Docker Services Setup
-Create a `docker-compose.yml` to launch local AI dependencies:
-
-```yaml
-version: '3.8'
-
-services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: idearium-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_storage:/root/.ollama
-    restart: unless-stopped
-
-  faster-whisper:
-    image: fedirz/faster-whisper-server:latest-cuda
-    container_name: idearium-whisper
-    ports:
-      - "8000:8000"
-    environment:
-      - WHISPER_MODEL=small
-      - WHISPER_DEVICE=cuda
-      - WHISPER_COMPUTE_TYPE=int8_float16
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-
-volumes:
-  ollama_storage:
-```
-
-Run the containers:
-```bash
-docker compose up -d
-```
-
-### 3. Application Installation
-Clone the repository and install npm packages:
-```bash
-git clone https://github.com/your-username/idearium.git
-cd idearium
+git clone git@github.com:fakel/Idearium.git
+cd Idearium
 npm install
-```
-
-Copy the environment template and fill in your details:
-```bash
 cp .env.example .env
 ```
 
-Environment Configuration (`.env`):
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-WHISPER_API_URL=http://localhost:8000
-OLLAMA_API_URL=http://localhost:11434
-OPENROUTER_API_KEY=your_optional_openrouter_key
-OBSIDIAN_VAULT_PATH=/path/to/your/obsidian/vault
-LANCED_DB_PATH=./data/lancedb
-```
+Edita `.env` como mínimo con `OBSIDIAN_VAULT_PATH` y, si vas a usar el bot, `TELEGRAM_BOT_TOKEN` y `TELEGRAM_ALLOWED_USER_IDS`.
 
-Build and run the service:
+### Instalación automática en un servidor (Ubuntu/Debian)
+
+Para un servidor dedicado hay un instalador idempotente que deja todo listo y arrancado con systemd:
+
 ```bash
-npm run build
-npm start
+git clone git@github.com:fakel/Idearium.git /opt/idearium
+cd /opt/idearium
+sudo bash scripts/install-server.sh
 ```
 
+Qué hace:
+
+- Instala paquetes base, **Node.js 22** (si hace falta), **Ollama** y descarga `qwen2.5:7b-instruct` + `bge-m3`.
+- Instala dependencias npm y compila (`npm ci && npm run build`).
+- Detecta GPU con `nvidia-smi`:
+  - **Con GPU**: instala el STT local (`uv sync` con wheels CUDA) y crea `idearium-stt.service`.
+  - **Sin GPU**: configura un STT externo compatible con OpenAI en `.env` y **no** instala CUDA.
+- Crea `.env` desde `.env.example` si no existe, con vault en `/srv/idearium/vault` y datos en `/var/lib/idearium`. Pregunta el token de Telegram y la allowlist (salvo `--yes`).
+- Crea `idearium.service` (bot + watcher) y `idearium-stt.service` (solo STT local), con reinicio automático.
+
+Opciones útiles:
+
+```bash
+sudo bash scripts/install-server.sh --stt=external   # forzar STT externo
+sudo bash scripts/install-server.sh --stt=cpu        # STT local sin CUDA (lento)
+sudo bash scripts/install-server.sh --user=miusuario # usuario que ejecuta los servicios
+sudo bash scripts/install-server.sh --no-models      # no descargar modelos
+sudo bash scripts/install-server.sh --no-service     # solo instalar, sin systemd
+```
+
+Para STT externo, edita `.env`:
+
+```dotenv
+WHISPER_API_URL=https://api.openai.com
+WHISPER_API_KEY=sk-...
+WHISPER_MODEL=whisper-1
+# OpenRouter (misma clave que el chat):
+# WHISPER_API_URL=https://openrouter.ai/api
+# WHISPER_MODEL=openai/whisper-1
+# Alternativa Groq:
+# WHISPER_API_URL=https://api.groq.com/openai
+# WHISPER_MODEL=whisper-large-v3
+```
+
+El endpoint debe aceptar `POST /v1/audio/transcriptions` con `multipart/form-data`. El instalador solo configura OpenAI por defecto; para otro proveedor cambia URL, modelo y clave.
+
+Si el servidor no tiene GPU y quieres evitar Ollama por completo, tras instalar edita `.env` con el bloque de [modo 100 % OpenRouter](#21-servidor-sin-gpu-modo-100--openrouter) y ejecuta `npm run doctor` + `sudo systemctl restart idearium`.
+
+Operación:
+
+```bash
+sudo systemctl status idearium idearium-stt
+sudo journalctl -u idearium -f
+sudo systemctl restart idearium
+```
+
+### 1. Modelos de Ollama
+
+No se descargan solos; ejecútalos una vez:
+
+```bash
+ollama pull qwen2.5:7b-instruct   # chat y estructuración (~4.7 GB)
+ollama pull bge-m3                # embeddings 1024 dims (~1.2 GB)
+```
+
+> Con 8 GB de VRAM, `qwen2.5:7b-instruct` en Q4 entra junto a `bge-m3` si no mantienes otros modelos cargados. Si prefieres algo más liviano, cambia `OLLAMA_MODEL` (por ejemplo `qwen2.5:3b-instruct`).
+
+### 2. Servidor de transcripción (opcional si solo usarás texto)
+
+```bash
+cd stt
+uv sync          # instala faster-whisper + libs CUDA 12 (cuBLAS/cuDNN)
+./start.sh       # http://127.0.0.1:8000
+```
+
+`stt/start.sh` añade al `LD_LIBRARY_PATH` las libs de los wheels `nvidia-*`, necesarias para CTranslate2. Si la GPU falla, el servidor cae automáticamente a CPU/int8 y lo registra en el log. Variables: `WHISPER_MODEL` (default `small`), `WHISPER_DEVICE` (default `cuda`), `WHISPER_COMPUTE_TYPE` (default `int8_float16`).
+
+Si no quieres ejecutar Whisper localmente, apunta `WHISPER_API_URL` a un proveedor externo compatible con OpenAI y define `WHISPER_API_KEY`; el bot usa el mismo endpoint `/v1/audio/transcriptions`. OpenRouter también sirve: `WHISPER_API_URL=https://openrouter.ai/api` y `WHISPER_MODEL=openai/whisper-large-v3-turbo` (si dejas `WHISPER_API_KEY` vacía, se reutiliza `OPENROUTER_API_KEY`).
+
+### 2.1 Servidor sin GPU: modo 100 % OpenRouter
+
+OpenRouter cubre las tres piezas: chat, embeddings y transcripción. Una sola `OPENROUTER_API_KEY` basta para no instalar Ollama ni Whisper.
+
+```dotenv
+LLM_PREFERENCE=remote_only
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=openai/gpt-4o-mini
+
+EMBEDDING_PROVIDER=openrouter
+OPENROUTER_EMBED_MODEL=baai/bge-m3
+EMBEDDING_DIM=1024
+
+WHISPER_API_URL=https://openrouter.ai/api
+WHISPER_MODEL=openai/whisper-large-v3-turbo
+WHISPER_API_KEY=                # vacío = reutiliza OPENROUTER_API_KEY
+WHISPER_TIMEOUT_MS=180000
+```
+
+### 2.2 Modelos recomendados en OpenRouter
+
+| Tarea | Gratis (`:free`) | Pago recomendado | Por qué |
+| --- | --- | --- | --- |
+| Captura → JSON (título, resumen, tags) | `google/gemma-4-31b-it:free` | `openai/gpt-4o-mini` · `deepseek/deepseek-v4-flash` (vía OpenRouter) | JSON fiable y barato; el segundo tiene 1M de contexto |
+| `/query` y RAG | `nvidia/nemotron-3.5-super-vl:free` | `google/gemini-3.1-flash-lite` | Contexto largo (1M) a bajo coste |
+| `/cluster`, `/memorize`, `/quiz` | `dots-studio/dots-3-note-preview:free` | `anthropic/claude-sonnet-4.6` · `openai/gpt-5.4-mini` | Mejor redacción y razonamiento |
+| Embeddings | `nvidia/nemotron-3.5-embed-8b:free` | `baai/bge-m3` | bge-m3 es 1024 dims, multilingüe y el mismo que en local |
+| Audio (STT) | **no hay** | `openai/whisper-large-v3-turbo` · `openai/gpt-4o-transcribe` · `elevenlabs/scribe-v2` | Turbo es el más barato; GPT-4o Transcribe aguanta mejor ruido/acentos; Scribe v2 destaca en multilingüe |
+
+Precios de referencia (por 1M de tokens, salvo audio):
+
+| Modelo | Entrada | Salida |
+| --- | --- | --- |
+| `deepseek/deepseek-v4-flash` | $0.09 | $0.18 |
+| `openai/gpt-4o-mini` | $0.15 | $0.60 |
+| `google/gemini-3.1-flash-lite` | $0.25 | $1.50 |
+| `openai/gpt-5.4-mini` | $0.75 | $4.50 |
+| `anthropic/claude-sonnet-4.6` | $3.00 | $15.00 |
+| `baai/bge-m3` (embeddings) | $0.01 | — |
+| `openai/whisper-large-v3-turbo` | ~$0.0002/minuto | — |
+| `elevenlabs/scribe-v2` | ~$0.0037/minuto | — |
+| `openai/whisper-1` | ~$0.006/minuto | — |
+
+#### Gratis vs pago
+
+- Los modelos `:free` están limitados a **20 peticiones/minuto y 50 peticiones/día**; el límite diario sube a 1.000 si alguna vez compraste $10 de créditos. Fallan con `429` cuando la capacidad compartida está ocupada, pueden desaparecer o cambiar sin aviso y varios no soportan `response_format` (los de la tabla sí).
+- En pago no existe ese cupo diario gratuito: pagas por token y tienes versiones estables, más throughput y opciones de enrutado/privacidad. Para este proyecto el coste es bajo: una captura típica cuesta fracciones de centavo.
+- **No hay STT gratuito en OpenRouter**: la transcripción siempre se cobra por segundo de audio.
+- Los embeddings gratuitos existen, pero su dimensión puede no ser 1024; si la cambias debes ajustar `EMBEDDING_DIM` y reindexar todo. Por eso el modo remoto recomendado usa `baai/bge-m3` de pago (seguís usando 1024 dims).
+- Si cambias de modelo de embeddings, reindexa desde cero (`rm -rf data/lancedb data/index-state.json && npm run cli -- reindex`).
+
+
+### 3. Bot de Telegram (opcional)
+
+El bot usa **long polling**: no necesitas dominio, webhook ni abrir puertos.
+
+#### 3.1 Crear el bot y obtener el token
+
+1. Abre Telegram y busca **[@BotFather](https://t.me/BotFather)** (el oficial, con el check azul).
+2. Envía `/newbot`.
+3. Elige un **nombre visible** (por ejemplo `Mi Idearium`).
+4. Elige un **username** que termine en `bot` y que esté libre (por ejemplo `mi_idearium_bot`).
+5. BotFather responderá con algo así:
+
+   ```text
+   Use this token to access the HTTP API:
+   123456789:AAH8xQ2exampleTokenNoReal_9fGh3kLm
+   ```
+
+   Ese es tu `TELEGRAM_BOT_TOKEN`. **No lo compartas ni lo subas al repo.**
+6. Opcional: envía `/setdescription` y `/setuserpic` a BotFather para personalizar el bot.
+7. Opcional: envía `/setprivacy` → `Disable` solo si quieres que el bot lea todos los mensajes de un grupo; para uso personal en chat privado no hace falta.
+
+> Si el token se filtra: `/revoke` en BotFather genera uno nuevo y anula el anterior. Actualiza `.env` después.
+
+#### 3.2 Obtener tu ID de usuario
+
+El bot solo atiende a los IDs de la allowlist.
+
+1. Abre **[@userinfobot](https://t.me/userinfobot)** y envía `/start`.
+2. Copia el número de la línea `Id:` (por ejemplo `123456789`).
+3. Si quieres autorizar a más personas, repite con cada una. También puedes usar **[@RawDataBot](https://t.me/RawDataBot)** y leer `"from":{"id":...}`.
+
+#### 3.3 Configurar `.env`
+
+Edita `.env` en la raíz del proyecto:
+
+```bash
+TELEGRAM_BOT_TOKEN=123456789:AAH8xQ2exampleTokenNoReal_9fGh3kLm
+TELEGRAM_ALLOWED_USER_IDS=123456789
+```
+
+Varios usuarios van separados por comas, sin espacios:
+
+```bash
+TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
+```
+
+Notas:
+
+- El token va **sin comillas** y sin espacios alrededor del `=`.
+- Si el ID es negativo (grupos/canales), también se admite; para uso normal usa tu ID positivo.
+- El bot **se niega a arrancar** si el token o la allowlist están vacíos: es intencional para no dejar un bot abierto.
+- `.env` está en `.gitignore`; no lo comitees.
+
+Verifica el token sin arrancar el bot:
+
+```bash
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
+```
+
+Debe devolver `"ok":true` y el username del bot. Si devuelve `401 Unauthorized`, el token está mal copiado.
+
+#### 3.4 Arrancar y probar
+
+```bash
+npm run dev      # desarrollo (tsx watch, reinicia al guardar)
+# o
+npm run build && npm start   # producción
+```
+
+En la consola debe aparecer el arranque del bot y del watcher. Luego, desde **tu** cuenta de Telegram:
+
+1. Abre el chat con tu bot (búscalo por su username) y pulsa **Start** o envía `/start`.
+   - Debe responder con la ayuda y el proveedor LLM activo.
+2. Envía un texto: `probar mi primer idea sobre el proyecto`.
+   - El bot muestra el título, el resumen y la categoría sugerida, y pregunta **en qué carpeta** guardarla con botones de las carpetas existentes.
+   - Elige una carpeta y luego una categoría; recién entonces responde con la ruta del `.md`, los tags y si quedó indexada.
+3. Envía una **nota de voz**.
+   - Se descarga el `.ogg`, se transcribe y pasa por la misma elección de carpeta y categoría.
+4. Prueba `/query ¿qué ideas tengo?`.
+5. Prueba desde otra cuenta no autorizada: debe responder "No estás autorizado".
+
+Si el bot no responde:
+
+- Revisa que el proceso siga vivo y sin errores en la consola.
+- `npm run doctor` valida token, allowlist y el resto del entorno.
+- Confirma que escribiste tu ID real (no el username) en `TELEGRAM_ALLOWED_USER_IDS`.
+- Si hay otra instancia del bot corriendo con el mismo token, Telegram devuelve `409 Conflict`: cierra la otra (`Ctrl+C` o `pkill -f "tsx.*src/index.ts"`).
+- El bot solo funciona con el proceso encendido; no es un servicio en la nube.
+
+### 4. Verificación
+
+```bash
+npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
+npm test         # 65 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
+npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
+```
+
+## Uso
+
+### Telegram
+
+| Acción | Cómo |
+| --- | --- |
+| Guardar una idea | Envía texto libre, una nota de voz o un documento; elige carpeta y categoría |
+| Descartar una captura pendiente | `/cancelar` |
+| Preguntar al vault | `/query ¿qué anoté sobre el presupuesto?` |
+| Reindexar tras cambios masivos | `/reindex` |
+| Forzar proveedor remoto | `/remoto <texto>` |
+| Crear un estudio que agrupa notas | `/cluster hardware local` |
+| Crear/actualizar un palacio | `/memorize ruta/o/tema` o `/memorize notas A, B y C` |
+| Ver un palacio o listar todos | `/palacio [ruta/o/tema]` |
+| Quiz interactivo | `/quiz tema` o `/quiz notas A, B y C` · `/quiz stop` |
+| Ayuda + estado | `/start` |
+
+El bot responde con título, ruta, tags y proveedor usado. Si el audio o el documento no se puede procesar, no se crea nota y se informa el error.
+
+#### Clasificación interactiva (carpeta y categoría)
+
+Cada texto, nota de voz o documento se detiene antes de guardarse para que elijas dónde va:
+
+1. **Carpeta**: botones con las carpetas del vault que ya contienen notas (incluida `Idearium`), más `➕ Otra carpeta`. También puedes escribir un nombre relativo, por ejemplo `Proyectos/Idearium`; la carpeta se crea si no existe.
+2. **Categoría**: botones con las categorías ya usadas en el vault (ordenadas por frecuencia), empezando por la que sugirió el LLM, más `➕ Otra categoría`. También puedes escribir una: `#idea`, `#tarea`, `#aprendizaje`, `#referencia`, `#proyecto`, `#personal` u `#otro` (se aceptan plurales).
+
+La captura preparada vive en memoria hasta 30 minutos. Si el bot se reinicia o pasa ese tiempo, hay que volver a enviarla. `/cancelar` la descarta sin escribir nada; el audio o documento descargado puede quedar en `data/audio/` o `data/documents/` para limpieza manual.
+
+#### Documentos
+
+Puedes enviar como archivo `.md`, `.txt`, `.pdf`, `.doc` o `.docx`. El bot:
+
+1. Descarga el original en `DOCUMENT_DIR` (20 MB máximo, límite de Telegram).
+2. Extrae el texto: Markdown sin frontmatter, texto plano, PDF con capa de texto, DOCX con `mammoth` y DOC con `word-extractor`.
+3. Lo pasa por el mismo flujo de clasificación (carpeta y categoría) y guarda el `.md` con `document_file` en el frontmatter.
+
+Límites: los PDF escaneados sin capa de texto no se pueden leer sin OCR; el texto extraído se recorta a `DOCUMENT_MAX_CHARS`. El original no se borra automáticamente.
+
+Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista las fuentes. Si no hay resultados, responde explícitamente que no encontró nada (no inventa).
+
+#### Palacios de la memoria
+
+- `/palacio` sin argumentos lista todos los palacios, individuales y combinados (`[combinado]`), con título y ruta relativa.
+- `/palacio ruta/o/nota.md` devuelve la sección completa tal cual (sin resumir), partida en varios mensajes si supera el límite de Telegram.
+- `/palacio tema` busca por título y, si no hay coincidencia exacta, por búsqueda semántica; muestra el palacio encontrado.
+- Si la nota no tiene palacio, el bot sugiere crearlo con `/memorize <nota>`.
+
+#### Quiz multi-nota
+
+`/quiz` acepta el mismo lenguaje natural que `/memorize`:
+
+```text
+/quiz sobre las notas Sprint 3, Retrospectiva y OKR del equipo
+/quiz procedimiento de compra
+```
+
+- Selecciona las notas por título explícito o por tema y reparte entre 3 y 6 preguntas (al menos una por nota cuando el modelo lo permite).
+- El `source` de cada pregunta se valida contra las notas seleccionadas; si el LLM inventa una fuente, la pregunta se descarta.
+- El feedback cita `[[Título]]` y el resumen final muestra aciertos por nota.
+- Si no hay notas para el tema, no empieza el quiz y lo dice.
+
+#### Palacios multi-nota
+
+`/memorize` acepta varias notas separadas por comas, punto y coma o `y`/`e`, y también un tema:
+
+```text
+/memorize palacio de la memoria de las notas Cafetería, Presupuesto y Proveedores
+/memorize palacio de memoria de todos los pasos del procedimiento de compra
+```
+
+- Con una sola nota, el palacio se escribe dentro de esa nota (comportamiento clásico).
+- Con varias notas o un tema, se crea una nota nueva en `Palacios/YYYY-MM-DD-palacio-<tema>.md` con `type: palacio` y la lista de `source_notes`.
+- El recorrido es único e integra las notas, citando `[[Título]]`; no se inventan datos ausentes.
+- Límites configurables con `MEMORY_MAX_NOTES` (5 por defecto) y `MEMORY_MAX_CHARS` (24.000 por defecto). Si se recorta, la nota lo indica.
+- Para títulos que contengan comas, usa comillas: `/memorize notas "Compras, ventas y stock", Presupuesto`.
+
+El listado sirve para copiar la ruta y consultarla directamente; solo se leen archivos `.md` del vault, ignorando `.obsidian/` y `.trash/`.
+
+### CLI
+
+```bash
+npm run cli -- text "Idea capturada desde terminal" [--remote]
+npm run cli -- audio ./nota.ogg [--remote]
+npm run cli -- query "¿qué ideas tengo sobre X?"
+npm run cli -- reindex
+```
+
+`--remote` fuerza OpenRouter (falla si no hay `OPENROUTER_API_KEY`).
+
+## Estructura de una nota
+
+```markdown
+---
+id: 3f1c…
+title: Repensar el índice
+summary: La búsqueda debe priorizar notas recientes.
+category: idea
+tags:
+  - busqueda
+  - indice
+created: 2026-11-05T15:00:00.000Z
+updated: 2026-11-05T15:00:00.000Z
+source: telegram_voice
+language: es
+audio_file: /…/data/audio/2026-11-05/….ogg
 ---
 
-## 📋 GitHub Milestones & Issues Backlog
+# Repensar el índice
 
-### Milestone 1: Base Infrastructure & Environment Setup
-- **Issue 1.1: Configure local Docker infrastructure (Ollama & Faster-Whisper GPU)**
-  - Create `docker-compose.yml` including `ollama` and `faster-whisper-server`.
-  - Enable NVIDIA GPU passthrough for the Faster-Whisper container.
-  - Verify container health and REST API accessibility on local ports.
-- **Issue 1.2: Initialize Node.js project with TypeScript, Zod, and environment variables**
-  - Initialize NPM project and configure `tsconfig.json`.
-  - Install core dependencies (`grammy`, `zod`, `dotenv`, `@lancedb/lancedb`, `axios`).
-  - Define project folder structure (`src/config`, `src/services`, `src/controllers`, `src/schemas`).
+## Resumen
+…
+## Ideas clave
+- …
+## Acciones
+- [ ] …
+## Transcripción
+…
+```
 
-### Milestone 2: Audio Capture & Local Transcription
-- **Issue 2.1: Implement Telegram Bot webhook/polling for voice notes**
-  - Setup Telegram Bot instance using `grammy` or `telegraf`.
-  - Implement handler to detect incoming `voice` and `text` payload objects.
-- **Issue 2.2: Save incoming audio streams to local storage**
-  - Fetch Telegram file download link via Telegram API.
-  - Stream the `.ogg` file to the local disk directory.
-- **Issue 2.3: Integrate local Faster-Whisper REST API for transcription**
-  - Build `stt.service.ts` to post audio files via `multipart/form-data`.
-  - Parse and return the transcribed text string.
+| Categoría | Uso |
+| --- | --- |
+| `idea`, `tarea`, `aprendizaje`, `referencia`, `proyecto`, `personal`, `otro` | Clasificación de la captura |
 
-### Milestone 3: LLM Structuring & Intelligent Routing
-- **Issue 3.1: Process transcript with local LLM (Ollama) into structured JSON**
-  - Define System Prompt enforcing JSON mode output.
-  - Build `llm.service.ts` to call Ollama HTTP endpoints.
-- **Issue 3.2: Implement OpenRouter client for fallback/complex routing**
-  - Add OpenRouter API client to `llm.service.ts`.
-  - Create routing logic to toggle between Ollama local and OpenRouter models based on explicit flags or complexity.
-- **Issue 3.3: Validate LLM JSON outputs using Zod schemas**
-  - Create `noteDigest.schema.ts` with Zod validation rules.
-  - Add retry or fallback logic if JSON parsing fails validation.
+## Configuración (`.env`)
 
-### Milestone 4: Obsidian Vault Integration & Markdown Depository
-- **Issue 4.1: Markdown Note Generator (`obsidian.service.ts`)**
-  - Create Markdown template engine supporting YAML frontmatter (title, tags, category, timestamp).
-  - Save generated `.md` files to the local Obsidian Vault directory.
-  - Send confirmation message with note summary back to user on Telegram.
+| Variable | Default | Descripción |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | vacío | Token de BotFather; sin él no hay bot |
+| `TELEGRAM_ALLOWED_USER_IDS` | vacío | IDs separados por comas; obligatorio |
+| `OLLAMA_API_URL` | `http://127.0.0.1:11434` | Ollama local |
+| `OLLAMA_MODEL` | `qwen2.5:7b-instruct` | Modelo de chat/estructuración |
+| `OLLAMA_EMBED_MODEL` | `bge-m3` | Embeddings (1024 dims) |
+| `OLLAMA_NUM_CTX` | `8192` | Contexto del modelo local |
+| `WHISPER_API_URL` | `http://127.0.0.1:8000` | STT local o externo compatible con OpenAI |
+| `WHISPER_API_KEY` | vacío | Token Bearer para STT externo |
+| `WHISPER_MODEL` | `small` | Modelo faster-whisper o del proveedor |
+| `WHISPER_TIMEOUT_MS` | `120000` | Timeout de transcripción |
+| `OBSIDIAN_VAULT_PATH` | `~/Documents/IdeariumVault` | Raíz del vault |
+| `NOTE_SUBDIR` | `Idearium` | Subcarpeta de notas |
+| `LANCEDB_PATH` | `./data/lancedb` | Índice vectorial |
+| `AUDIO_DIR` | `./data/audio` | Audios descargados |
+| `DOCUMENT_DIR` | `./data/documents` | Documentos originales descargados |
+| `DOCUMENT_MAX_CHARS` | `200000` | Máximo de texto extraído de un documento |
+| `EMBEDDING_DIM` | `1024` | Debe coincidir con el modelo de embeddings |
+| `EMBEDDING_PROVIDER` | `ollama` | `ollama` o `openrouter` |
+| `OPENROUTER_EMBED_MODEL` | `baai/bge-m3` | Modelo de embeddings remoto (1024 dims) |
+| `LLM_PREFERENCE` | `local_first` | `local_only`, `local_first`, `remote_first`, `remote_only` |
+| `LLM_ESCALATE_ON` | `validation_failure,explicit_flag` | Disparadores de escalado |
+| `LLM_MAX_LOCAL_CHARS` | `12000` | Umbral de `long_input` |
+| `LLM_TIMEOUT_MS` | `120000` | Timeout por llamada |
+| `OPENROUTER_API_KEY` | vacío | Activa OpenRouter (chat, embeddings y STT) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Endpoint de chat/embeddings |
+| `OPENROUTER_MODEL` | vacío → `openai/gpt-4o-mini` | Modelo de chat de OpenRouter |
+| `LLM_REMOTE_MODEL` | vacío | Alias histórico para el modelo de OpenRouter |
+| `RAG_TOP_K` | `8` | Chunks recuperados por consulta |
+| `MEMORY_MAX_NOTES` | `5` | Máximo de notas para un palacio/quiz multi-nota |
+| `MEMORY_MAX_CHARS` | `24000` | Máximo de caracteres de contexto multi-nota |
+| `LOG_LEVEL` | `info` | Nivel de pino |
 
-### Milestone 5: Embedded Vector Database (LanceDB) & Vault Sync
-- **Issue 5.1: Initialize LanceDB embedded database & schemas (`vector.service.ts`)**
-  - Install `@lancedb/lancedb` dependency in the Node.js project.
-  - Define LanceDB schema for notes (ID, vector, raw content, metadata JSON, file path, updated_at).
-  - Initialize database connection pointing to local storage path.
-- **Issue 5.2: File-Watcher & LanceDB Synchronization Engine**
-  - Setup `chokidar` in Node.js monitoring the Obsidian Vault folder.
-  - Extract text content and YAML frontmatter from `.md` files upon file events.
-  - Generate embeddings (`bge-m3`) and sync vector rows directly into LanceDB tables.
+### Enrutado local/remoto
 
-### Milestone 6: RAG Query Engine & Conversational Interface
-- **Issue 6.1: Vector Retrieval & RAG Pipeline (`rag.service.ts`)**
-  - Implement vector search query service using LanceDB Node.js API.
-  - Construct context-augmented prompts with retrieved Markdown chunks.
-  - Synthesize RAG responses using local LLM via Ollama.
-- **Issue 6.2: Chat Interface Integration**
-  - Expose query interface endpoint or Telegram `/query` command.
-  - Return synthesized answers with references to source Obsidian notes.
+- `local_first` (default): usa Ollama. Escala a OpenRouter si el JSON no valida (tras un reintento local con el error de Zod como feedback), si usas `--remote`, o si la captura supera `LLM_MAX_LOCAL_CHARS`.
+- `remote_first`: intenta OpenRouter y cae a local.
+- `local_only` / `remote_only`: un único modo. `remote_only` usa OpenRouter, sin Ollama.
+- Sin `OPENROUTER_API_KEY`, las preferencias `remote_*` se degradan a `local_first` con un warning.
+- Los embeddings son locales por defecto (`bge-m3`). Con `EMBEDDING_PROVIDER=openrouter` se usa `baai/bge-m3` remoto (misma dimensión 1024).
+- No hay otros proveedores remotos: DeepSeek fue retirado del proyecto porque no ofrece embeddings ni STT.
 
-### Milestone 7: Knowledge Depository & On-Demand Memory Palace (Future Roadmap)
-- **Issue 7.1: On-Demand Topic Clustering & Study Guide Generation**
-  - Implement Telegram `/cluster` command handler to initiate note grouping on request.
-  - Perform semantic search and clustering queries in LanceDB based on the target topic.
-  - Generate and save a master study guide Markdown file inside the Obsidian Vault.
-- **Issue 7.2: On-Demand Spatial Loci Mapping (Memory Palace Generator)**
-  - Implement Telegram `/memorize` command handler to process spatial transformation on demand.
-  - Build a specialized System Prompt mapping concepts into vivid visual anchors tied to a physical route.
-  - Append the generated Loci map section directly to the target Obsidian note and update its LanceDB payload.
-- **Issue 7.3: Interactive Active Recall & Loci Quiz Session**
-  - Implement Telegram `/quiz` command handler to start an interactive active recall session.
-  - Query LanceDB for stored Loci anchors and generate context-aware practice questions.
-  - Provide step-by-step feedback and score responses using local LLM evaluation.
+## Comandos npm
 
----
+| Comando | Qué hace |
+| --- | --- |
+| `npm run dev` | Bot + watcher con recarga |
+| `npm run build` | Compila TypeScript a `dist/` |
+| `npm start` | Ejecuta `dist/index.js` |
+| `npm test` | Vitest |
+| `npm run cli -- <cmd>` | CLI |
+| `npm run doctor` | Diagnóstico accionable |
+| `npm run smoke` | Prueba E2E en vault temporal |
+| `npm run install:server` | Instalador para Ubuntu/Debian (requiere sudo) |
 
-## 📜 License
+## Cómo funciona el índice
 
-Distributed under the Business Source License 1.1. See `LICENSE` for more information.
+- `chunkMarkdown` divide por encabezados y parte secciones largas con solape.
+- Cada chunk se embebe con `bge-m3` por lotes y se guarda en la tabla `notes` de LanceDB (`note_path`, `chunk_index`, `vector`, `text`, `title`, `tags`, `category`, `updated_at`).
+- Se guarda un hash por archivo en `data/index-state.json`; si no cambió, no se reindexa.
+- El watcher (`chokidar`, debounce 500 ms) sincroniza ediciones manuales del vault, ignorando `.obsidian/` y `.trash/`.
+
+## Solución de problemas
+
+**Ollama no responde** → `ollama serve` y comprueba `curl 127.0.0.1:11434/api/tags`.
+
+**Falta un modelo** → el doctor te dice cuál; `ollama pull <modelo>`.
+
+**El STT está en CPU** → revisa `/health`; si no hay GPU, el servidor cae a CPU a propósito. Para forzar: `WHISPER_DEVICE=cpu ./stt/start.sh`. En GPU, verifica `nvidia-smi` y que `uv sync` instaló `nvidia-cudnn-cu12`.
+
+**"No se pudo conectar con Ollama para embeddings"** → falta `bge-m3` o Ollama está caído; el índice no se actualiza pero la nota ya quedó guardada.
+
+**Docker con GPU** → no se usa en este proyecto. Si ves `failed to discover GPU vendor from CDI`, es el setup de Docker, no Idearium; el STT corre nativo.
+
+**Cambié de modelo de embeddings** → actualiza `EMBEDDING_DIM` y borra `data/lancedb` + `data/index-state.json`; luego `/reindex`.
+
+## Privacidad
+
+- Audio, transcripciones, notas y vectores se quedan en tu disco.
+- Solo sale de tu máquina lo que envíes a Telegram (que es inevitable) y, si activas OpenRouter, el texto de la captura/consulta, los fragmentos usados por RAG, los embeddings y/o el audio enviados a OpenRouter.
+- Con `EMBEDDING_PROVIDER=openrouter`, los textos de tus notas también salen hacia OpenRouter para calcular vectores.
+- Con STT remoto, el audio sale hacia el proveedor configurado en `WHISPER_API_URL`.
+- Los audios se guardan en `data/audio/`; bórralos cuando quieras.
+
+## Estado y roadmap
+
+**v0.0.1** incluye captura de texto, voz y documentos; clasificación interactiva; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria multi-nota; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
+
+Pendiente:
+
+- OCR para fotos y PDF escaneados (F5).
+- Webhook opcional de Telegram para despliegues con HTTPS (F6).
+- Búsqueda híbrida BM25, resúmenes periódicos, multi-vault e integración móvil fuera de Telegram.
+
+## Licencia
+
+BSL 1.1 — ver [LICENSE](LICENSE).
