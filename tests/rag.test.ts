@@ -25,7 +25,6 @@ function setup(hits: SearchHit[]) {
     upsertNote: vi.fn(async () => undefined),
     deleteByPath: vi.fn(async () => undefined),
     count: vi.fn(async () => hits.length),
-    clear: vi.fn(async () => undefined),
   };
   const completeText = vi.fn(async () => ({ value: 'El gato duerme [[Gato]].' }));
   const llm: TextCompleter = { completeText };

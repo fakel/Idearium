@@ -102,7 +102,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     timeoutMs: env.WHISPER_TIMEOUT_MS,
   });
 
-  const ingest = new IngestController({ router, obsidian, stt, documents, ocr, indexer });
+  const ingest = new IngestController({ router, obsidian, stt, documents, indexer });
   const rag = new RagService({ topK: env.RAG_TOP_K }, vector, embedder, router);
   const selector = new NoteSelectorService(
     { vaultPath: env.OBSIDIAN_VAULT_PATH, maxNotes: env.MEMORY_MAX_NOTES, maxChars: env.MEMORY_MAX_CHARS },

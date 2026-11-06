@@ -36,7 +36,6 @@ export interface VectorStore {
   upsertNote(notePath: string, rows: VectorRow[]): Promise<void>;
   deleteByPath(notePath: string): Promise<void>;
   count(): Promise<number>;
-  clear(): Promise<void>;
 }
 
 function escapeSql(value: string): string {
@@ -136,15 +135,6 @@ export class VectorService implements VectorStore {
   async count(): Promise<number> {
     const table = await this.requireTable();
     return table.countRows();
-  }
-
-  async clear(): Promise<void> {
-    const db = await this.requireDb();
-    if ((await db.tableNames()).includes(notesTableName)) {
-      await db.dropTable(notesTableName);
-    }
-    this.table = undefined;
-    await this.open();
   }
 
   async close(): Promise<void> {

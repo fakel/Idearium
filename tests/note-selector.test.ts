@@ -43,7 +43,6 @@ function fakeVector(hits: Array<Partial<SearchHit> & { notePath: string }>): Vec
     upsertNote: async () => undefined,
     deleteByPath: async () => undefined,
     count: async () => hits.length,
-    clear: async () => undefined,
   };
 }
 

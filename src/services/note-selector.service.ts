@@ -189,12 +189,6 @@ export class NoteSelectorService {
     return contexts;
   }
 
-  async selectAndLoad(expression: string): Promise<{ selection: NoteSelection; contexts: NoteContext[] }> {
-    const selection = await this.select(expression);
-    const contexts = await this.load(selection.notes);
-    return { selection, contexts };
-  }
-
   /** Exact match by title, filename, relative path or slug. */
   async resolveExplicit(target: string): Promise<NoteRef | null> {
     const trimmed = target.trim();

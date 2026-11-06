@@ -8,7 +8,6 @@ import { ObsidianService } from '../src/services/obsidian.service.js';
 import { DocumentService } from '../src/services/document.service.js';
 import type { NoteDigest } from '../src/schemas/noteDigest.schema.js';
 import type { Completion } from '../src/services/llm-router.service.js';
-import type { OcrService } from '../src/services/ocr.service.js';
 
 const digest: NoteDigest = {
   title: 'Idea pendiente',
@@ -61,26 +60,6 @@ describe('IngestController', () => {
     const result = await controller.save(prepared);
     expect(matter(await readFile(result.note.path, 'utf8')).data.document_file).toBe(file);
     expect(result.note.path).toContain(path.join(vault, 'Idearium'));
-  });
-
-  it('prepara una foto con OCR y guarda image_file en el frontmatter', async () => {
-    const photoController = new IngestController({
-      router: completer,
-      obsidian: new ObsidianService({ vaultPath: vault, notesDir: path.join(vault, 'Idearium') }),
-      ocr: {
-        extract: async () => ({ text: 'Texto leído de la foto', model: 'vision' }),
-      } as unknown as OcrService,
-    });
-    const photo = path.join(vault, 'foto.jpg');
-    await writeFile(photo, 'fake', 'utf8');
-
-    const prepared = await photoController.preparePhoto(photo, { source: 'telegram_photo' });
-    expect(prepared.transcript).toBe('Texto leído de la foto');
-    expect(prepared.source).toBe('telegram_photo');
-    expect(prepared.imageFile).toBe(photo);
-
-    const result = await photoController.save(prepared);
-    expect(matter(await readFile(result.note.path, 'utf8')).data.image_file).toBe(photo);
   });
 
   it('prepara sin escribir y guarda con carpeta y categoría elegidas', async () => {
