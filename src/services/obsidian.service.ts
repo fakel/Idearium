@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
@@ -106,14 +106,35 @@ export class ObsidianService {
     await mkdir(destination, { recursive: true });
 
     const now = input.now ?? new Date();
-    const noteNumber = await this.nextNoteNumber();
-    const { content, frontmatter } = this.render(input, noteNumber);
-    const base = `${formatNoteNumber(noteNumber)}-${slugify(input.digest.title)}-${formatNoteDate(now)}`;
-    const target = path.join(destination, `${base}.md`);
+    let noteNumber = 0;
+    let target = '';
 
+    // Reserva el nombre con O_EXCL: si otro proceso (bot/CLI) eligió el
+    // mismo número, se reintenta con el siguiente.
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      noteNumber = await this.nextNoteNumber();
+      const base = `${formatNoteNumber(noteNumber)}-${slugify(input.digest.title)}-${formatNoteDate(now)}`;
+      const candidate = path.join(destination, `${base}.md`);
+      try {
+        const handle = await open(candidate, 'wx');
+        await handle.close();
+        target = candidate;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
+    if (!target) throw new Error('No se pudo reservar un nombre de nota libre.');
+
+    const { content, frontmatter } = this.render(input, noteNumber);
     const tmp = `${target}.tmp-${randomUUID()}`;
-    await writeFile(tmp, content, 'utf8');
-    await rename(tmp, target);
+    try {
+      await writeFile(tmp, content, 'utf8');
+      await rename(tmp, target);
+    } catch (error) {
+      await unlink(target).catch(() => undefined);
+      throw error;
+    }
 
     return {
       id: frontmatter.id,

@@ -119,4 +119,26 @@ describe('ObsidianService', () => {
     });
     expect(content).toContain('_Sin acciones pendientes._');
   });
+
+  it('reserva nombres únicos entre dos escritores concurrentes', async () => {
+    const first = new ObsidianService({ vaultPath: vault, notesDir: path.join(vault, 'Idearium') });
+    const second = new ObsidianService({ vaultPath: vault, notesDir: path.join(vault, 'Idearium') });
+    const digest = {
+      title: 'Misma nota',
+      summary: 'Resumen válido para la prueba.',
+      category: 'idea' as const,
+      tags: ['uno', 'dos', 'tres'],
+      action_items: [],
+      key_ideas: ['idea'],
+      language: 'es',
+    };
+
+    const [a, b] = await Promise.all([
+      first.write({ digest, source: 'cli_text', transcript: 'texto' }),
+      second.write({ digest, source: 'cli_text', transcript: 'texto' }),
+    ]);
+
+    expect(a.path).not.toBe(b.path);
+    expect(new Set([a.path, b.path]).size).toBe(2);
+  });
 });
