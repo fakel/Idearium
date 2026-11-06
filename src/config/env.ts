@@ -53,7 +53,18 @@ const envSchema = z.object({
   TELEGRAM_ALLOWED_USER_IDS: z
     .string()
     .default('')
-    .transform((value) => csv(value)),
+    .transform((value, ctx) => {
+      const ids = csv(value);
+      const invalid = ids.filter((id) => !/^\d+$/.test(id) || Number(id) <= 0);
+      if (invalid.length > 0) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `TELEGRAM_ALLOWED_USER_IDS debe contener IDs numéricos separados por comas; inválidos: ${invalid.join(', ')}`,
+        });
+        return z.NEVER;
+      }
+      return ids;
+    }),
 
   OLLAMA_API_URL: z.string().trim().min(1).default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().trim().min(1).default('qwen2.5:7b-instruct'),

@@ -71,3 +71,20 @@ describe('env remoto (solo OpenRouter)', () => {
     );
   });
 });
+
+
+describe('allowlist de Telegram', () => {
+  it('rechaza IDs que no son números positivos', () => {
+    expect(() => parseEnv({ TELEGRAM_ALLOWED_USER_IDS: 'abc' })).toThrow(
+      'TELEGRAM_ALLOWED_USER_IDS debe contener IDs numéricos',
+    );
+    expect(() => parseEnv({ TELEGRAM_ALLOWED_USER_IDS: '123, -4' })).toThrow(
+      'TELEGRAM_ALLOWED_USER_IDS debe contener IDs numéricos',
+    );
+  });
+
+  it('acepta IDs separados por comas', () => {
+    const env = parseEnv({ TELEGRAM_ALLOWED_USER_IDS: '123, 456' });
+    expect(env.TELEGRAM_ALLOWED_USER_IDS).toEqual(['123', '456']);
+  });
+});
