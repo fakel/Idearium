@@ -17,7 +17,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Seguridad
 
-- Override de `sharp` a `0.35.5` para cerrar las alertas de Dependabot sobre libvips, libheif y librsvg que llegaban vía `@lancedb/lancedb` → `@huggingface/transformers`. `npm audit` queda en 0 vulnerabilidades.
+- Overrides de `@huggingface/transformers` a `4.3.2` y `sharp` a `0.35.5` para cerrar las alertas de Dependabot sobre libvips, libheif y librsvg que llegaban vía `@lancedb/lancedb`. `npm audit` queda en 0 vulnerabilidades.
 
 ## [0.1.0] - 2026-11-06
 

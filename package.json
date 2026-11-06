@@ -54,6 +54,7 @@
     "node": ">=20"
   },
   "overrides": {
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "@huggingface/transformers": "4.3.2"
   }
 }
