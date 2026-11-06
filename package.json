@@ -2,7 +2,7 @@
   "name": "idearium",
   "version": "0.1.0",
   "description": "Local-first voice-to-vault AI knowledge engine",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "test": "vitest run",
     "dev": "tsx watch src/index.ts",
