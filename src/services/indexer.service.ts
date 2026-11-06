@@ -125,11 +125,14 @@ export class Indexer {
     const files = await this.listMarkdownFiles(this.config.vaultPath);
     const result: ReindexResult = { indexed: 0, skipped: 0, removed: 0, failed: 0 };
     const seen = new Set<string>();
+    const stateBefore = await this.loadState();
+    const embeddingChanged =
+      this.config.embedding !== undefined && stateBefore.embedding !== this.config.embedding;
 
     for (const file of files) {
       seen.add(path.resolve(file));
       try {
-        const indexed = await this.indexFile(file);
+        const indexed = await this.indexFile(file, { force: embeddingChanged });
         if (indexed.skipped) result.skipped += 1;
         else result.indexed += 1;
       } catch (error) {

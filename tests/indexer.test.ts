@@ -149,4 +149,27 @@ describe('Indexer + LanceDB', () => {
     expect(paths).toContain(path.resolve(kept));
     expect(paths).not.toContain(path.resolve(removed));
   });
+
+  it('reindexa todas las notas cuando cambia el modelo de embeddings', async () => {
+    const a = await writeNote('a.md', '## A\n\nContenido A.');
+    const b = await writeNote('b.md', '## B\n\nContenido B.');
+    await indexer.reindexAll();
+
+    const changed = new Indexer(
+      {
+        vaultPath: root,
+        notesDir: path.join(root, 'Idearium'),
+        stateFile: path.join(root, 'index-state.json'),
+        embedding: 'openrouter:otro:4',
+      },
+      vector,
+      embedder,
+      pino({ level: 'silent' }),
+    );
+    const result = await changed.reindexAll();
+
+    expect(result.indexed).toBe(2);
+    expect(result.skipped).toBe(0);
+    expect(a).not.toBe(b);
+  });
 });
