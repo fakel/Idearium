@@ -4,6 +4,12 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
+## [Unreleased]
+
+### Añadido
+
+- Seguimiento de coste y tokens de OpenRouter: cada captura guardada y cada `/query` muestran una nota con el coste de la petición y el total acumulado; `/usage` muestra el acumulado desde la primera llamada, con desglose por chat, OCR, embeddings y transcripción. Los totales se guardan en `USAGE_FILE` (`./data/usage.json` por defecto).
+
 ## [0.1.1] - 2026-11-06
 
 ### Añadido

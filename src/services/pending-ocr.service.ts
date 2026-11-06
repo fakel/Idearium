@@ -1,3 +1,5 @@
+import { mergeUsageTotals, type UsageTotals } from './usage.service.js';
+
 export type OcrStage = 'confirm' | 'editing';
 
 export interface PendingOcr {
@@ -6,6 +8,8 @@ export interface PendingOcr {
   /** Modelo que produjo el texto; permite ofrecer el reintento con el alternativo. */
   model: string;
   stage: OcrStage;
+  /** Coste del OCR que produjo este texto, para sumarlo al guardar la nota. */
+  usage?: UsageTotals;
   createdAt: number;
   expiresAt: number;
 }
@@ -22,13 +26,20 @@ export class PendingOcrStore {
     private readonly now: () => number = Date.now,
   ) {}
 
-  create(chatId: number, text: string, imageFile: string, model = ''): PendingOcr {
+  create(
+    chatId: number,
+    text: string,
+    imageFile: string,
+    model = '',
+    usage?: UsageTotals,
+  ): PendingOcr {
     const now = this.now();
     const pending: PendingOcr = {
       text,
       imageFile,
       model,
       stage: 'confirm',
+      ...(usage ? { usage } : {}),
       createdAt: now,
       expiresAt: now + this.ttlMs,
     };
@@ -51,11 +62,17 @@ export class PendingOcrStore {
   }
 
   /** Guarda el texto corregido y vuelve a pedir confirmación. */
-  updateText(chatId: number, text: string, model?: string): PendingOcr | undefined {
+  updateText(
+    chatId: number,
+    text: string,
+    model?: string,
+    usage?: UsageTotals,
+  ): PendingOcr | undefined {
     const pending = this.get(chatId);
     if (!pending) return undefined;
     pending.text = text;
     if (model) pending.model = model;
+    if (usage) pending.usage = mergeUsageTotals(pending.usage, usage);
     pending.stage = 'confirm';
     pending.expiresAt = this.now() + this.ttlMs;
     return pending;

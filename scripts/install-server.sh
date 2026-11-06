@@ -158,6 +158,7 @@ if [[ $NEW_ENV -eq 1 ]]; then
   set_env AUDIO_DIR "$RUNTIME_ROOT/audio"
   set_env DOCUMENT_DIR "$RUNTIME_ROOT/documents"
   set_env IMAGES_DIR "$RUNTIME_ROOT/images"
+  set_env USAGE_FILE "$RUNTIME_ROOT/usage.json"
 else
   ensure_env OBSIDIAN_VAULT_PATH "$DEFAULT_VAULT"
   ensure_env NOTE_SUBDIR "Idearium"
@@ -165,6 +166,7 @@ else
   ensure_env AUDIO_DIR "$RUNTIME_ROOT/audio"
   ensure_env DOCUMENT_DIR "$RUNTIME_ROOT/documents"
   ensure_env IMAGES_DIR "$RUNTIME_ROOT/images"
+  ensure_env USAGE_FILE "$RUNTIME_ROOT/usage.json"
 fi
 
 chmod 600 "$ENV_FILE"

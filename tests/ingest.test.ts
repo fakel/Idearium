@@ -8,6 +8,7 @@ import { ObsidianService } from '../src/services/obsidian.service.js';
 import { DocumentService } from '../src/services/document.service.js';
 import type { NoteDigest } from '../src/schemas/noteDigest.schema.js';
 import type { Completion } from '../src/services/llm-router.service.js';
+import { withUsageSession } from '../src/services/usage.service.js';
 
 const digest: NoteDigest = {
   title: 'Idea pendiente',
@@ -60,6 +61,28 @@ describe('IngestController', () => {
     const result = await controller.save(prepared);
     expect(matter(await readFile(result.note.path, 'utf8')).data.document_file).toBe(file);
     expect(result.note.path).toContain(path.join(vault, 'Idearium'));
+  });
+
+  it('suma el coste de una fase anterior al preparar la captura', async () => {
+    const prepared = await withUsageSession(() =>
+      controller.prepareText('texto', {
+        source: 'telegram_photo',
+        extraUsage: {
+          requests: 1,
+          promptTokens: 10,
+          completionTokens: 2,
+          totalTokens: 12,
+          costUsd: 0.0004,
+        },
+      }),
+    );
+    expect(prepared.usage).toEqual({
+      requests: 1,
+      promptTokens: 10,
+      completionTokens: 2,
+      totalTokens: 12,
+      costUsd: 0.0004,
+    });
   });
 
   it('prepara sin escribir y guarda con carpeta y categoría elegidas', async () => {

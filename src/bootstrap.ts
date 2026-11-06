@@ -15,6 +15,7 @@ import { QuizService } from './services/quiz.service.js';
 import { RagService } from './services/rag.service.js';
 import { StorageService } from './services/storage.service.js';
 import { SttService } from './services/stt.service.js';
+import { UsageTracker } from './services/usage.service.js';
 import { VectorService } from './services/vector.service.js';
 
 export interface Runtime {
@@ -34,6 +35,7 @@ export interface Runtime {
   cluster: ClusterService;
   memorize: MemorizeService;
   quiz: QuizService;
+  usage: UsageTracker;
   close: () => Promise<void>;
 }
 
@@ -42,7 +44,8 @@ export async function createRuntime(env: Env): Promise<Runtime> {
   await mkdir(env.notesDir, { recursive: true });
   await mkdir(studiesDir, { recursive: true });
 
-  const router = createLlmRouter(env);
+  const usage = new UsageTracker(env.USAGE_FILE);
+  const router = createLlmRouter(env, undefined, usage);
   const vector = new VectorService(env.LANCEDB_PATH, env.EMBEDDING_DIM);
   await vector.open();
 
@@ -57,6 +60,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
           dimension: env.EMBEDDING_DIM,
           timeoutMs: env.LLM_TIMEOUT_MS,
           providerName: 'OpenRouter',
+          usage,
         })
       : new OllamaEmbeddingService({
           baseUrl: env.OLLAMA_API_URL,
@@ -91,6 +95,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     fallbackModel: env.visionFallbackModel,
     reasoningEffort: env.OPENROUTER_REASONING_EFFORT,
     timeoutMs: env.LLM_TIMEOUT_MS,
+    usage,
   });
   const stt = new SttService({
     baseUrl: env.WHISPER_API_URL,
@@ -100,6 +105,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
       (env.WHISPER_API_URL.includes('openrouter.ai') ? env.OPENROUTER_API_KEY : ''),
     model: env.WHISPER_MODEL,
     timeoutMs: env.WHISPER_TIMEOUT_MS,
+    usage,
   });
 
   const ingest = new IngestController({ router, obsidian, stt, documents, indexer });
@@ -141,6 +147,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     cluster,
     memorize,
     quiz,
+    usage,
     close: async () => {
       await vector.close();
     },

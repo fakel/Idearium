@@ -68,7 +68,7 @@ docker compose logs -f idearium
 El contenedor escribe en:
 
 - `/vault`: tu vault de Obsidian (notas `.md`).
-- `/data`: LanceDB, audios temporales, documentos, fotos y estado del índice.
+- `/data`: LanceDB, audios temporales, documentos, fotos, estado del índice y `usage.json` (totales de coste). Backups: copia esta carpeta.
 
 Por defecto se montan `./vault` y `./data`. Para usar tu vault real, crea un `.env` con:
 
@@ -90,6 +90,7 @@ docker run -d \
   -e AUDIO_DIR=/data/audio \
   -e DOCUMENT_DIR=/data/documents \
   -e IMAGES_DIR=/data/images \
+  -e USAGE_FILE=/data/usage.json \
   -v /home/magneto/Documents/IdeariumVault:/vault \
   -v /home/magneto/idearium/data:/data \
   --restart unless-stopped \

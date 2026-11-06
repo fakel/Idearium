@@ -22,6 +22,31 @@ describe('PendingOcrStore', () => {
     expect(store.get(1)).toBeUndefined();
   });
 
+  it('acumula el coste del OCR original y del reintento', () => {
+    const store = new PendingOcrStore();
+    store.create(1, 'texto', '/vault/foto.jpg', 'gemma', {
+      requests: 1,
+      promptTokens: 100,
+      completionTokens: 10,
+      totalTokens: 110,
+      costUsd: 0.0001,
+    });
+    const updated = store.updateText(1, 'texto qwen', 'qwen', {
+      requests: 1,
+      promptTokens: 200,
+      completionTokens: 20,
+      totalTokens: 220,
+      costUsd: 0.0002,
+    });
+    expect(updated?.usage).toEqual({
+      requests: 2,
+      promptTokens: 300,
+      completionTokens: 30,
+      totalTokens: 330,
+      costUsd: 0.0003,
+    });
+  });
+
   it('caduca tras el TTL', () => {
     let now = 0;
     const store = new PendingOcrStore(1000, () => now);

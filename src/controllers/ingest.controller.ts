@@ -7,6 +7,11 @@ import type { Indexer } from '../services/indexer.service.js';
 import type { NoteSource, ObsidianService, WrittenNote } from '../services/obsidian.service.js';
 import type { SttService } from '../services/stt.service.js';
 import type { DocumentService } from '../services/document.service.js';
+import {
+  currentUsageSession,
+  mergeUsageTotals,
+  type UsageTotals,
+} from '../services/usage.service.js';
 
 export interface DigestCompleter {
   completeJson<T>(request: JsonCompletionRequest<T>): Promise<Completion<T>>;
@@ -27,6 +32,8 @@ export interface IngestOptions {
   audioFile?: string;
   documentFile?: string;
   imageFile?: string;
+  /** Coste de una fase anterior (p. ej. OCR) que debe sumarse a esta captura. */
+  extraUsage?: UsageTotals;
 }
 
 export interface IngestResult {
@@ -39,6 +46,8 @@ export interface IngestResult {
   reason: string;
   indexed: boolean;
   indexingError?: string;
+  /** Coste de transcripción/OCR/digest, antes de indexar. */
+  usage?: UsageTotals;
 }
 
 /** Captura ya transcrita y digerida, pendiente de elegir carpeta/categoría. */
@@ -53,6 +62,8 @@ export interface PreparedIngest {
   model: string;
   usedRemote: boolean;
   reason: string;
+  /** Coste acumulado de la preparación (STT/OCR + digest). */
+  usage?: UsageTotals;
 }
 
 export interface SaveIngestOptions {
@@ -74,6 +85,7 @@ export class IngestController {
     if (!transcript) throw new Error('La captura está vacía.');
 
     const digest = await this.digest(transcript, Boolean(options.remote));
+    const usage = mergeUsageTotals(options.extraUsage, currentUsageSession()?.totals());
     return {
       transcript,
       digest: digest.value,
@@ -85,6 +97,7 @@ export class IngestController {
       model: digest.model,
       usedRemote: digest.usedRemote,
       reason: digest.reason,
+      ...(usage ? { usage } : {}),
     };
   }
 
@@ -135,6 +148,7 @@ export class IngestController {
       reason: prepared.reason,
       indexed,
       ...(indexingError ? { indexingError } : {}),
+      ...(prepared.usage ? { usage: prepared.usage } : {}),
     };
   }
 

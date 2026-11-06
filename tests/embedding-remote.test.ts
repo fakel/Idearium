@@ -12,6 +12,7 @@ describe('OpenAICompatibleEmbeddingService', () => {
       expect(JSON.parse(String(init?.body))).toEqual({
         model: 'baai/bge-m3',
         input: ['uno', 'dos'],
+        usage: { include: true },
       });
       return new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3, 0.4] }] }), {
         status: 200,

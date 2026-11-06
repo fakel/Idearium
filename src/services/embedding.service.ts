@@ -1,4 +1,5 @@
 import { ProviderError } from './llm.service.js';
+import type { UsageTracker } from './usage.service.js';
 
 export interface Embedder {
   embed(texts: string[]): Promise<number[][]>;
@@ -15,6 +16,7 @@ export interface RemoteEmbeddingConfig extends EmbeddingConfig {
   apiKey: string;
   /** Human-readable provider name for errors. */
   providerName?: string;
+  usage?: UsageTracker;
 }
 
 interface OllamaEmbedResponse {
@@ -82,6 +84,11 @@ export class OllamaEmbeddingService implements Embedder {
 
 interface OpenAIEmbeddingResponse {
   data?: Array<{ embedding?: number[]; index?: number }>;
+  usage?: {
+    prompt_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+  };
   error?: { message?: string };
 }
 
@@ -108,7 +115,7 @@ export class OpenAICompatibleEmbeddingService implements Embedder {
           'content-type': 'application/json',
           authorization: `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify({ model: this.config.model, input: texts }),
+        body: JSON.stringify({ model: this.config.model, input: texts, usage: { include: true } }),
         signal: AbortSignal.timeout(this.config.timeoutMs),
       });
     } catch (error) {
@@ -130,6 +137,14 @@ export class OpenAICompatibleEmbeddingService implements Embedder {
     }
 
     const data = (await response.json()) as OpenAIEmbeddingResponse;
+    await this.config.usage?.record({
+      kind: 'embedding',
+      provider: this.config.providerName ?? 'remote-embed',
+      model: this.config.model,
+      promptTokens: data.usage?.prompt_tokens,
+      totalTokens: data.usage?.total_tokens,
+      costUsd: data.usage?.cost,
+    });
     const items = data.data ?? [];
     if (items.length !== texts.length || items.some((item) => !Array.isArray(item.embedding))) {
       throw new ProviderError(

@@ -15,6 +15,7 @@ services:
       AUDIO_DIR: /data/audio
       DOCUMENT_DIR: /data/documents
       IMAGES_DIR: /data/images
+      USAGE_FILE: /data/usage.json
       TZ: ${TZ:-UTC}
     volumes:
       - ${IDEARIUM_VAULT_DIR:-./vault}:/vault

@@ -23,7 +23,8 @@ FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     LLM_PREFERENCE=remote_only \
     EMBEDDING_PROVIDER=openrouter \
-    WHISPER_API_URL=https://openrouter.ai/api
+    WHISPER_API_URL=https://openrouter.ai/api \
+    USAGE_FILE=/data/usage.json
 
 WORKDIR /app
 

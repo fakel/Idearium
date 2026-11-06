@@ -8,6 +8,7 @@ import {
 } from './llm.service.js';
 import { OllamaProvider } from './providers/ollama.provider.js';
 import { OpenAICompatibleProvider } from './providers/openai-compatible.provider.js';
+import type { UsageTracker } from './usage.service.js';
 
 export interface RouterLogger {
   info: (obj: unknown, message: string) => void;
@@ -261,7 +262,11 @@ export class LlmRouter {
   }
 }
 
-export function createLlmRouter(env: Env, logger: RouterLogger = defaultLogger): LlmRouter {
+export function createLlmRouter(
+  env: Env,
+  logger: RouterLogger = defaultLogger,
+  usage?: UsageTracker,
+): LlmRouter {
   const local = new OllamaProvider({
     baseUrl: env.OLLAMA_API_URL,
     model: env.OLLAMA_MODEL,
@@ -278,6 +283,7 @@ export function createLlmRouter(env: Env, logger: RouterLogger = defaultLogger):
         model: provider.model,
         reasoningEffort: provider.reasoningEffort,
         timeoutMs: env.LLM_TIMEOUT_MS,
+        usage,
       }),
   );
 

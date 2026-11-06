@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { createRuntime } from './bootstrap.js';
 import { loadEnv } from './config/env.js';
 import { formatNoteList } from './lib/note-list.js';
+import { formatUsageReport } from './services/usage.service.js';
 
 const usage = `Idearium CLI
 
@@ -13,6 +14,7 @@ Uso:
   npm run cli -- query "¿qué anoté sobre X?"
   npm run cli -- notes [texto]
   npm run cli -- reindex
+  npm run cli -- usage
 
 Opciones:
   --remote   fuerza OpenRouter (falla si no hay OPENROUTER_API_KEY)
@@ -78,6 +80,10 @@ async function main(): Promise<void> {
             )
           : notes;
         console.log(formatNoteList(filtered));
+        break;
+      }
+      case 'usage': {
+        console.log(formatUsageReport(await runtime.usage.snapshot()));
         break;
       }
       case 'reindex': {

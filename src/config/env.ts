@@ -89,6 +89,8 @@ const envSchema = z.object({
   DOCUMENT_DIR: z.string().trim().min(1).default('./data/documents'),
   DOCUMENT_MAX_CHARS: z.coerce.number().int().min(1_000).max(1_000_000).default(200_000),
   IMAGES_DIR: z.string().trim().min(1).default('./data/images'),
+  /** JSON with aggregated OpenRouter usage; safe to keep outside the vault. */
+  USAGE_FILE: z.string().trim().min(1).default('./data/usage.json'),
   EMBEDDING_DIM: z.coerce.number().int().positive().default(1024),
 
   LLM_PREFERENCE: z.enum(llmPreferences).default('local_first'),

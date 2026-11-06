@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ReasoningEffort } from '../config/env.js';
+import type { UsageTracker } from './usage.service.js';
 
 export interface OcrConfig {
   apiKey: string;
@@ -11,6 +12,7 @@ export interface OcrConfig {
   reasoningEffort?: ReasoningEffort;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  usage?: UsageTracker;
 }
 
 export interface OcrOptions {
@@ -26,7 +28,14 @@ export interface OcrResult {
 }
 
 interface VisionResponse {
+  model?: string;
   choices?: Array<{ message?: { content?: string | null } }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+  };
   error?: { message?: string };
 }
 
@@ -118,6 +127,7 @@ export class OcrService {
         body: JSON.stringify({
           model,
           temperature: 0,
+          usage: { include: true },
           ...(this.config.reasoningEffort ? { reasoning: { effort: this.config.reasoningEffort } } : {}),
           messages: [
             {
@@ -145,6 +155,15 @@ export class OcrService {
     }
 
     const data = (await response.json()) as VisionResponse;
+    await this.config.usage?.record({
+      kind: 'ocr',
+      provider: 'openrouter',
+      model: data.model ?? model,
+      promptTokens: data.usage?.prompt_tokens,
+      completionTokens: data.usage?.completion_tokens,
+      totalTokens: data.usage?.total_tokens,
+      costUsd: data.usage?.cost,
+    });
     const content = data.choices?.[0]?.message?.content?.trim();
     if (!content) {
       throw new Error(

@@ -322,7 +322,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 125 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT)
+npm test         # 133 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -355,10 +355,22 @@ Los comandos de la tabla siguen funcionando para quien prefiera escribirlos, y e
 | Ver un palacio o listar todos | `/palacio [número|ruta/o/tema]` |
 | Borrar un palacio | `/palacio rm <número|ruta/o/tema>` |
 | Quiz interactivo | `/quiz tema`, `/quiz 7` o `/quiz notas A, B y C` · `/quiz stop` |
+| Coste y tokens acumulados | `/usage` |
 | Ayuda + estado | `/start` |
 | Mostrar el teclado de acciones | `/menu` |
 
 El bot responde con título, ruta, tags y proveedor usado. Si el audio, la foto o el documento no se puede procesar, no se crea nota y se informa el error.
+
+#### Coste y uso de OpenRouter
+
+Cada respuesta de OpenRouter trae su consumo real (`usage.cost` y tokens). Idearium lo agrega en `USAGE_FILE` (`./data/usage.json` por defecto):
+
+- Al guardar una nota, el mensaje de confirmación añade una línea `💵 $0.000123 · 1.234 tokens · total $0.0456` con el coste de esa captura (incluye resumen, OCR/STT y embeddings usados).
+- `/query` añade la misma nota al final de la respuesta.
+- `/usage` muestra el acumulado **desde la primera llamada**: total, desglose por chat/OCR/embeddings/transcripción y los modelos que más han costado.
+- El archivo solo contiene totales agregados; no guarda notas, prompts ni conversaciones. Si se borra, el contador empieza de cero.
+- Los modelos gratuitos registran `$0.000000`; si un proveedor no devuelve `usage`, la petición cuenta pero sin tokens/coste.
+- La nota de coste es informativa: OpenRouter puede redondear o facturar distinto por créditos, caché o descuentos.
 
 `/notas` muestra todas las notas con su número (`0001 — Título`); `/notas texto` filtra por título o ruta. Las notas antiguas sin número aparecen por su título. `/notas 7` (o `/notas #0007`) muestra el contenido completo de esa nota, sin frontmatter.
 
@@ -534,6 +546,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `DOCUMENT_DIR` | `./data/documents` | Documentos originales descargados |
 | `DOCUMENT_MAX_CHARS` | `200000` | Máximo de texto extraído de un documento |
 | `IMAGES_DIR` | `./data/images` | Fotos originales para OCR |
+| `USAGE_FILE` | `./data/usage.json` | Totales agregados de coste/tokens de OpenRouter |
 | `EMBEDDING_DIM` | `1024` | Debe coincidir con el modelo de embeddings |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` o `openrouter` |
 | `OPENROUTER_EMBED_MODEL` | `baai/bge-m3` | Modelo de embeddings remoto (1024 dims) |

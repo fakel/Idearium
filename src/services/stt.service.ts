@@ -1,6 +1,7 @@
 import { openAsBlob } from 'node:fs';
 import path from 'node:path';
 import { withRetry } from '../lib/retry.js';
+import type { UsageTracker } from './usage.service.js';
 
 export interface SttConfig {
   baseUrl: string;
@@ -9,6 +10,7 @@ export interface SttConfig {
   model?: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
+  usage?: UsageTracker;
 }
 
 export interface Transcription {
@@ -21,6 +23,13 @@ interface SttResponse {
   text?: string;
   language?: string;
   duration?: number;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+    seconds?: number;
+  };
   detail?: string;
 }
 
@@ -57,6 +66,15 @@ export class SttService {
         }
 
         const data = (await response.json()) as SttResponse;
+        await this.config.usage?.record({
+          kind: 'stt',
+          provider: this.config.baseUrl.includes('openrouter.ai') ? 'openrouter' : 'stt',
+          model: this.config.model ?? 'default',
+          promptTokens: data.usage?.prompt_tokens,
+          completionTokens: data.usage?.completion_tokens,
+          totalTokens: data.usage?.total_tokens,
+          costUsd: data.usage?.cost,
+        });
         if (typeof data.text !== 'string' || data.text.trim() === '') {
           throw new Error(`STT no devolvió texto (${data.detail ?? 'respuesta vacía'}); archivo ${extension}.`);
         }

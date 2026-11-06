@@ -1,5 +1,6 @@
 import type { ReasoningEffort, RemoteProviderName } from '../../config/env.js';
 import { ProviderError, type ChatProvider, type ChatRequest } from '../llm.service.js';
+import type { UsageTracker } from '../usage.service.js';
 
 export interface OpenAICompatibleProviderOptions {
   name: RemoteProviderName;
@@ -9,10 +10,18 @@ export interface OpenAICompatibleProviderOptions {
   model: string;
   reasoningEffort?: ReasoningEffort;
   timeoutMs?: number;
+  usage?: UsageTracker;
 }
 
 interface ChatCompletionsResponse {
+  model?: string;
   choices?: Array<{ message?: { content?: string | null } }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+  };
   error?: { message?: string };
 }
 
@@ -62,6 +71,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
             ? { reasoning: { effort: this.options.reasoningEffort } }
             : {}),
           ...(json ? { response_format: { type: 'json_object' } } : {}),
+          usage: { include: true },
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -84,6 +94,16 @@ export class OpenAICompatibleProvider implements ChatProvider {
     }
 
     const data = (await response.json()) as ChatCompletionsResponse;
+    const usage = data.usage;
+    await this.options.usage?.record({
+      kind: 'chat',
+      provider: this.name,
+      model: data.model ?? this.model,
+      promptTokens: usage?.prompt_tokens,
+      completionTokens: usage?.completion_tokens,
+      totalTokens: usage?.total_tokens,
+      costUsd: usage?.cost,
+    });
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
       throw new ProviderError(

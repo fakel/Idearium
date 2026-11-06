@@ -12,6 +12,15 @@ import { categoryOptions, normalizeCategory, normalizeFolder, type NoteCategory 
 import { noteCategories } from '../schemas/noteDigest.schema.js';
 import { logger, type Logger } from '../lib/logger.js';
 import { formatNoteList } from '../lib/note-list.js';
+import {
+  currentUsageSession,
+  formatUsageNote,
+  formatUsageReport,
+  formatUsageTotalsNote,
+  formatUsd,
+  mergeUsageTotals,
+  withUsageSession,
+} from '../services/usage.service.js';
 
 const maxTelegramChars = 4000;
 const maxDocumentBytes = 20 * 1024 * 1024;
@@ -50,6 +59,7 @@ const helpText = [
   '/palacio rm <número|nota|tema> — borrar un palacio y sus enlaces',
   '/quiz <número|tema|varias notas> — quiz interactivo multi-nota',
   '/quiz stop — terminar el quiz actual',
+  '/usage — coste y tokens acumulados de OpenRouter',
   '/cancelar — descartar la captura pendiente',
   '/start — esta ayuda y estado del sistema',
 ].join('\n');
@@ -85,7 +95,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       return;
     }
     if (ctx.message?.text?.startsWith('/')) menuFlow.clear(ctx.chat?.id ?? 0);
-    await next();
+    return withUsageSession(async () => {
+      await next();
+    });
   });
 
   bot.command('start', async (ctx) => {
@@ -101,6 +113,10 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   bot.command('notas', (ctx) => runNotes(ctx, ctx.match.trim()));
 
   bot.command('query', (ctx) => runQuery(ctx, ctx.match.trim()));
+
+  bot.command('usage', async (ctx) => {
+    await reply(ctx, formatUsageReport(await runtime.usage.snapshot()));
+  });
 
   bot.command('remoto', async (ctx) => {
     const text = ctx.match.trim();
@@ -172,12 +188,14 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
 
   async function sendHelp(ctx: Context): Promise<void> {
     const count = await runtime.vector.count().catch(() => 0);
+    const usage = await runtime.usage.snapshot();
     const text = [
       helpText,
       '',
       `Proveedor: ${runtime.router.status()}`,
       `Vault: ${runtime.env.OBSIDIAN_VAULT_PATH}`,
       `Notas indexadas (chunks): ${count}`,
+      `Coste acumulado (OpenRouter): ${formatUsd(usage.costUsd)}`,
     ].join('\n');
     await ctx.reply(text.slice(0, maxTelegramChars), { reply_markup: mainMenuKeyboard() });
   }
@@ -326,7 +344,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
             .map((source) => `- [[${source.title}]] (${source.path})`)
             .join('\n')}`
         : '';
-      await reply(ctx, `${answer.answer}${sources}`);
+      const usageNote = formatUsageNote(currentUsageSession(), await runtime.usage.snapshot());
+      await reply(ctx, `${answer.answer}${sources}${usageNote ? `\n\n${usageNote}` : ''}`);
     } catch (error) {
       await replyError(ctx, error);
     }
@@ -538,7 +557,13 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     try {
       const stored = await runtime.storage.saveTelegramPhoto(photo.file_id);
       const ocr = await runtime.ocr.extract(stored.path);
-      const waiting = pendingOcr.create(ctx.chat.id, ocr.text, stored.path, ocr.model);
+      const waiting = pendingOcr.create(
+        ctx.chat.id,
+        ocr.text,
+        stored.path,
+        ocr.model,
+        currentUsageSession()?.totals(),
+      );
       await sendOcrConfirmation(ctx, waiting);
     } catch (error) {
       await replyError(ctx, error);
@@ -706,7 +731,12 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         await typing(ctx);
         try {
           const ocr = await runtime.ocr.extract(waiting.imageFile, { useFallback: true });
-          const updated = pendingOcr.updateText(chatId, ocr.text, ocr.model);
+          const updated = pendingOcr.updateText(
+            chatId,
+            ocr.text,
+            ocr.model,
+            currentUsageSession()?.totals(),
+          );
           await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
           if (updated) await sendOcrConfirmation(ctx, updated);
         } catch (error) {
@@ -726,6 +756,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         const prepared = await runtime.ingest.prepareText(waiting.text, {
           source: 'telegram_photo',
           imageFile: waiting.imageFile,
+          extraUsage: waiting.usage,
         });
         pendingOcr.clear(chatId);
         await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
@@ -882,7 +913,12 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         category,
       });
       pending.clear(ctx.chat.id);
-      await reply(ctx, `📁 ${capture.folder}\n${formatIngest(result)}`);
+      const requestUsage = mergeUsageTotals(result.usage, currentUsageSession()?.totals());
+      const usageNote = formatUsageTotalsNote(
+        requestUsage,
+        await runtime.usage.snapshot(),
+      );
+      await reply(ctx, `📁 ${capture.folder}\n${formatIngest(result, usageNote)}`);
     } catch (error) {
       await replyError(ctx, error);
     }
@@ -895,7 +931,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   return bot;
 }
 
-function formatIngest(result: IngestResult): string {
+function formatIngest(result: IngestResult, usageNote = ''): string {
   const lines = [
     `📝 ${result.note.title}`,
     `Archivo: ${result.note.relativePath}`,
@@ -907,6 +943,7 @@ function formatIngest(result: IngestResult): string {
   } else if (result.indexed) {
     lines.push('Indexada para búsquedas.');
   }
+  if (usageNote) lines.push(usageNote);
   return lines.join('\n');
 }
 
@@ -1032,5 +1069,6 @@ export const telegramCommands = [
   { command: 'cluster', description: 'Crear un estudio por tema' },
   { command: 'reindex', description: 'Reindexar el vault' },
   { command: 'remoto', description: 'Capturar usando el proveedor remoto' },
+  { command: 'usage', description: 'Coste y tokens acumulados' },
   { command: 'cancelar', description: 'Descartar la captura pendiente' },
 ];
