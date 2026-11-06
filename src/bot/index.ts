@@ -939,7 +939,7 @@ function mainMenuKeyboard(): Keyboard {
     .persistent();
 }
 
-function menuActionForText(text: string): MenuButtonAction | null {
+export function menuActionForText(text: string): MenuButtonAction | null {
   const match = (Object.entries(menuButtons) as Array<[MenuButtonAction, string]>).find(
     ([, label]) => label === text,
   );
