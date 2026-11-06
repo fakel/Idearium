@@ -8,6 +8,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 
+- Menú fijo de Telegram (`/menu` y teclado persistente) con botones para consultar, listar notas, ver palacios, memorizar, empezar un quiz, reindexar y abrir la ayuda; los botones de consulta/memorizar/quiz piden el texto en el siguiente mensaje. Menú nativo de comandos con descripciones.
 - OCR de fotos con `message:photo`, `google/gemma-4-31b-it` por defecto y `qwen/qwen3-vl-30b-a3b-instruct` como alternativa automática o manual, prompt Markdown que conserva tablas, confirmación del texto detectado antes de resumir, `image_file` en el frontmatter e `IMAGES_DIR`.
 
 ### Corregido

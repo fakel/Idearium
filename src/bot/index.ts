@@ -1,10 +1,11 @@
 import path from 'node:path';
-import { Bot, InlineKeyboard, type Context } from 'grammy';
+import { Bot, InlineKeyboard, Keyboard, type Context } from 'grammy';
 import type { Runtime } from '../bootstrap.js';
 import { truncate } from '../lib/text.js';
 import type { IngestResult, PreparedIngest } from '../controllers/ingest.controller.js';
 import { PendingCaptureStore, type PendingCapture } from '../services/pending.service.js';
 import { PendingOcrStore, type PendingOcr } from '../services/pending-ocr.service.js';
+import { AwaitingActionStore } from '../services/menu-flow.service.js';
 import type { MemorizeResult } from '../services/memorize.service.js';
 import { isSupportedDocumentExtension, supportedDocumentExtensions } from '../services/document.service.js';
 import { categoryOptions, normalizeCategory, normalizeFolder, type NoteCategory } from '../lib/classification.js';
@@ -15,11 +16,25 @@ import { formatNoteList } from '../lib/note-list.js';
 const maxTelegramChars = 4000;
 const maxDocumentBytes = 20 * 1024 * 1024;
 
+const menuButtons = {
+  query: '🔍 Consultar',
+  notes: '📚 Notas',
+  palaces: '🏛️ Palacios',
+  memorize: '🧠 Memorizar',
+  quiz: '🎯 Quiz',
+  reindex: '🔄 Reindexar',
+  help: '❓ Ayuda',
+} as const;
+
+type MenuButtonAction = keyof typeof menuButtons;
+
 const helpText = [
   'Idearium — tu memoria externa en Obsidian.',
   '',
   'Envíame texto, una nota de voz, una foto con texto o un documento (.md, .pdf, .txt, .doc, .docx).',
   'Tras el OCR de una foto te pediré confirmar o corregir el texto antes de guardar.',
+  '',
+  'Usa los botones de abajo para no escribir comandos. Si prefieres el teclado, también funcionan:',
   '',
   'Comandos:',
   '/query <pregunta> — buscar en tus notas (RAG)',
@@ -29,6 +44,7 @@ const helpText = [
   '/reindex — reindexar todo el vault',
   '/remoto <texto> — forzar el proveedor remoto',
   '/cluster <tema> — crear un estudio que agrupa notas',
+  '/menu — mostrar los botones',
   '/memorize <nota|tema> — crear palacio de una sola nota',
   '/palacio [número|nota|tema] — ver un palacio o listar todos',
   '/palacio rm <número|nota|tema> — borrar un palacio y sus enlaces',
@@ -42,6 +58,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   const bot = new Bot(runtime.env.TELEGRAM_BOT_TOKEN);
   const pending = new PendingCaptureStore();
   const pendingOcr = new PendingOcrStore();
+  const menuFlow = new AwaitingActionStore();
   const palaceChoices = new Map<
     number,
     { notes: Array<{ path: string; title: string }>; expiresAt: number }
@@ -56,25 +73,151 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       log.warn({ userId }, 'bot.unauthorized');
       return;
     }
+    if (ctx.message?.text?.startsWith('/')) menuFlow.clear(ctx.chat?.id ?? 0);
     await next();
   });
 
   bot.command('start', async (ctx) => {
-    const count = await runtime.vector.count().catch(() => 0);
+    await sendHelp(ctx);
+  });
+
+  bot.command('menu', async (ctx) => {
+    await ctx.reply('Menú activado. Usa los botones de abajo o escribe /start para ver la ayuda.', {
+      reply_markup: mainMenuKeyboard(),
+    });
+  });
+
+  bot.command('notas', (ctx) => runNotes(ctx, ctx.match.trim()));
+
+  bot.command('query', (ctx) => runQuery(ctx, ctx.match.trim()));
+
+  bot.command('remoto', async (ctx) => {
+    const text = ctx.match.trim();
+    if (!text) return reply(ctx, 'Uso: /remoto <texto>');
+    if (!runtime.env.hasRemote) {
+      return reply(ctx, 'No hay proveedor remoto configurado (OPENROUTER_API_KEY).');
+    }
+
+    await typing(ctx);
+    try {
+      if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+        return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
+      }
+      const prepared = await runtime.ingest.prepareText(text, {
+        source: 'telegram_text',
+        remote: true,
+      });
+      await startClassification(ctx, prepared);
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  });
+
+  bot.command('cancelar', async (ctx) => {
+    const clearedOcr = pendingOcr.clear(ctx.chat.id);
+    const cleared = pending.clear(ctx.chat.id);
     await reply(
       ctx,
-      [
-        helpText,
-        '',
-        `Proveedor: ${runtime.router.status()}`,
-        `Vault: ${runtime.env.OBSIDIAN_VAULT_PATH}`,
-        `Notas indexadas (chunks): ${count}`,
-      ].join('\n'),
+      clearedOcr || cleared
+        ? 'Captura cancelada. No se guardó la nota.'
+        : 'No hay una captura pendiente.',
     );
   });
 
-  bot.command('notas', async (ctx) => {
-    const raw = ctx.match.trim();
+  bot.command('reindex', (ctx) => runReindex(ctx));
+
+  bot.command('cluster', async (ctx) => {
+    const topic = ctx.match.trim();
+    if (!topic) return reply(ctx, 'Uso: /cluster <tema>');
+    await typing(ctx);
+    try {
+      const result = await runtime.cluster.run(topic);
+      await reply(ctx, `Estudio creado: ${result.title}\n${result.path}\nNotas usadas: ${result.noteCount}`);
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  });
+
+  bot.command('memorize', (ctx) => runMemorize(ctx, ctx.match.trim()));
+
+  async function sendPalaceCreated(ctx: Context, result: MemorizeResult): Promise<void> {
+    const status = result.combined
+      ? `Palacio combinado creado (${result.noteCount} notas)`
+      : result.created
+        ? 'Palacio añadido'
+        : 'Palacio actualizado';
+    const sources = result.combined ? `Notas: ${result.notes.join(', ')}` : '';
+    const palaces = await runtime.memorize.listPalaces();
+    const number = findPalaceNumber(palaces, result.path);
+    const lines = [`${status}: ${result.title}`, result.path];
+    if (number) lines.push(`Número: ${number} — consulta con /palacio ${number}`);
+    if (sources) lines.push(sources);
+    await reply(ctx, lines.join('\n'));
+  }
+
+  bot.command('palacio', (ctx) => runPalace(ctx, ctx.match.trim()));
+
+  bot.command('quiz', (ctx) => runQuiz(ctx, ctx.match.trim()));
+
+  async function sendHelp(ctx: Context): Promise<void> {
+    const count = await runtime.vector.count().catch(() => 0);
+    const text = [
+      helpText,
+      '',
+      `Proveedor: ${runtime.router.status()}`,
+      `Vault: ${runtime.env.OBSIDIAN_VAULT_PATH}`,
+      `Notas indexadas (chunks): ${count}`,
+    ].join('\n');
+    await ctx.reply(text.slice(0, maxTelegramChars), { reply_markup: mainMenuKeyboard() });
+  }
+
+  async function handleMenuButton(ctx: Context, action: MenuButtonAction): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+
+    if (action === 'help') {
+      await sendHelp(ctx);
+      return;
+    }
+    if (pending.has(chatId) || pendingOcr.has(chatId)) {
+      await reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar antes de usar el menú.');
+      return;
+    }
+    if (runtime.quiz.hasSession(chatId) && action !== 'quiz') {
+      await reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de usar otra acción.');
+      return;
+    }
+
+    switch (action) {
+      case 'query':
+        menuFlow.set(chatId, 'query');
+        await reply(ctx, 'Escribe tu pregunta y la buscaré en tus notas.');
+        return;
+      case 'notes':
+        await runNotes(ctx, '');
+        return;
+      case 'palaces':
+        await runPalace(ctx, '');
+        return;
+      case 'memorize':
+        menuFlow.set(chatId, 'memorize');
+        await reply(ctx, 'Escribe el número, título o tema de la nota para crear su palacio.');
+        return;
+      case 'quiz':
+        if (runtime.quiz.hasSession(chatId)) {
+          await reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de empezar otro.');
+          return;
+        }
+        menuFlow.set(chatId, 'quiz');
+        await reply(ctx, 'Escribe el número, título o tema de las notas para el quiz.');
+        return;
+      case 'reindex':
+        await runReindex(ctx);
+        return;
+    }
+  }
+
+  async function runNotes(ctx: Context, raw: string): Promise<void> {
     const removing = /^rm(?:\s+(.+))?$/i.exec(raw);
     if (removing) {
       const target = removing[1]?.trim();
@@ -137,10 +280,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
+  }
 
-  bot.command('query', async (ctx) => {
-    const question = ctx.match.trim();
+  async function runQuery(ctx: Context, question: string): Promise<void> {
     if (!question) return reply(ctx, 'Uso: /query <pregunta>');
 
     await typing(ctx);
@@ -155,42 +297,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
+  }
 
-  bot.command('remoto', async (ctx) => {
-    const text = ctx.match.trim();
-    if (!text) return reply(ctx, 'Uso: /remoto <texto>');
-    if (!runtime.env.hasRemote) {
-      return reply(ctx, 'No hay proveedor remoto configurado (OPENROUTER_API_KEY).');
-    }
-
-    await typing(ctx);
-    try {
-      if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
-        return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
-      }
-      const prepared = await runtime.ingest.prepareText(text, {
-        source: 'telegram_text',
-        remote: true,
-      });
-      await startClassification(ctx, prepared);
-    } catch (error) {
-      await replyError(ctx, error);
-    }
-  });
-
-  bot.command('cancelar', async (ctx) => {
-    const clearedOcr = pendingOcr.clear(ctx.chat.id);
-    const cleared = pending.clear(ctx.chat.id);
-    await reply(
-      ctx,
-      clearedOcr || cleared
-        ? 'Captura cancelada. No se guardó la nota.'
-        : 'No hay una captura pendiente.',
-    );
-  });
-
-  bot.command('reindex', async (ctx) => {
+  async function runReindex(ctx: Context): Promise<void> {
     await reply(ctx, 'Reindexando el vault… esto puede tardar.');
     try {
       const result = await runtime.indexer.reindexAll();
@@ -201,22 +310,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
+  }
 
-  bot.command('cluster', async (ctx) => {
-    const topic = ctx.match.trim();
-    if (!topic) return reply(ctx, 'Uso: /cluster <tema>');
-    await typing(ctx);
-    try {
-      const result = await runtime.cluster.run(topic);
-      await reply(ctx, `Estudio creado: ${result.title}\n${result.path}\nNotas usadas: ${result.noteCount}`);
-    } catch (error) {
-      await replyError(ctx, error);
-    }
-  });
-
-  bot.command('memorize', async (ctx) => {
-    const target = ctx.match.trim();
+  async function runMemorize(ctx: Context, target: string): Promise<void> {
     if (!target) {
       return reply(
         ctx,
@@ -255,25 +351,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
-
-  async function sendPalaceCreated(ctx: Context, result: MemorizeResult): Promise<void> {
-    const status = result.combined
-      ? `Palacio combinado creado (${result.noteCount} notas)`
-      : result.created
-        ? 'Palacio añadido'
-        : 'Palacio actualizado';
-    const sources = result.combined ? `Notas: ${result.notes.join(', ')}` : '';
-    const palaces = await runtime.memorize.listPalaces();
-    const number = findPalaceNumber(palaces, result.path);
-    const lines = [`${status}: ${result.title}`, result.path];
-    if (number) lines.push(`Número: ${number} — consulta con /palacio ${number}`);
-    if (sources) lines.push(sources);
-    await reply(ctx, lines.join('\n'));
   }
 
-  bot.command('palacio', async (ctx) => {
-    const target = ctx.match.trim();
+  async function runPalace(ctx: Context, target: string): Promise<void> {
     await typing(ctx);
     try {
       const remove = /^rm(?:\s+(.+))?$/i.exec(target);
@@ -352,11 +432,11 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
+  }
 
-  bot.command('quiz', async (ctx) => {
-    const topic = ctx.match.trim();
-    const chatId = ctx.chat.id;
+  async function runQuiz(ctx: Context, topic: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
 
     if (!topic) return reply(ctx, 'Uso: /quiz <tema> o /quiz stop');
     if (topic.toLowerCase() !== 'stop' && (pending.has(chatId) || pendingOcr.has(chatId))) {
@@ -374,9 +454,10 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     } catch (error) {
       await replyError(ctx, error);
     }
-  });
+  }
 
   bot.on('message:voice', async (ctx) => {
+    menuFlow.clear(ctx.chat.id);
     if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
       return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
@@ -398,6 +479,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   });
 
   bot.on('message:photo', async (ctx) => {
+    menuFlow.clear(ctx.chat.id);
     const photo = ctx.message.photo.at(-1);
     if (!photo) return;
     if (photo.file_size && photo.file_size > maxDocumentBytes) {
@@ -422,6 +504,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   });
 
   bot.on('message:document', async (ctx) => {
+    menuFlow.clear(ctx.chat.id);
     const document = ctx.message.document;
     const fileName = document.file_name ?? 'documento';
     const extension = path.extname(fileName).toLowerCase();
@@ -455,8 +538,24 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text.trim();
     if (!text) return;
+
+    const menuAction = menuActionForText(text);
+    if (menuAction) {
+      menuFlow.clear(ctx.chat.id);
+      await handleMenuButton(ctx, menuAction);
+      return;
+    }
+
     if (text.startsWith('/')) {
       await reply(ctx, 'Comando no reconocido. Usa /start para ver la ayuda.');
+      return;
+    }
+
+    const awaited = menuFlow.take(ctx.chat.id);
+    if (awaited) {
+      if (awaited === 'query') await runQuery(ctx, text);
+      else if (awaited === 'memorize') await runMemorize(ctx, text);
+      else await runQuiz(ctx, text);
       return;
     }
 
@@ -779,6 +878,29 @@ function capturePreview(prepared: PreparedIngest): string {
   return lines.join('\n');
 }
 
+function mainMenuKeyboard(): Keyboard {
+  return new Keyboard()
+    .text(menuButtons.query)
+    .text(menuButtons.notes)
+    .row()
+    .text(menuButtons.palaces)
+    .text(menuButtons.memorize)
+    .row()
+    .text(menuButtons.quiz)
+    .text(menuButtons.reindex)
+    .row()
+    .text(menuButtons.help)
+    .resized()
+    .persistent();
+}
+
+function menuActionForText(text: string): MenuButtonAction | null {
+  const match = (Object.entries(menuButtons) as Array<[MenuButtonAction, string]>).find(
+    ([, label]) => label === text,
+  );
+  return match ? match[0] : null;
+}
+
 function folderKeyboard(folders: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   folders.forEach((folder, index) => {
@@ -853,3 +975,17 @@ async function replyError(ctx: Context, error: unknown): Promise<void> {
   logger.error({ error: message }, 'bot.handler_failed');
   await reply(ctx, `⚠️ ${message}`);
 }
+
+export const telegramCommands = [
+  { command: 'start', description: 'Ayuda, estado y menú' },
+  { command: 'menu', description: 'Mostrar los botones' },
+  { command: 'query', description: 'Preguntar a tus notas (RAG)' },
+  { command: 'notas', description: 'Listar, leer o borrar notas' },
+  { command: 'palacio', description: 'Ver o borrar palacios' },
+  { command: 'memorize', description: 'Crear un palacio de una nota' },
+  { command: 'quiz', description: 'Empezar o parar un quiz' },
+  { command: 'cluster', description: 'Crear un estudio por tema' },
+  { command: 'reindex', description: 'Reindexar el vault' },
+  { command: 'remoto', description: 'Capturar usando el proveedor remoto' },
+  { command: 'cancelar', description: 'Descartar la captura pendiente' },
+];

@@ -322,13 +322,23 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 90 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
+npm test         # 106 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
 ## Uso
 
 ### Telegram
+
+Al abrir el chat con `/start` (o con `/menu`) aparece un **teclado fijo** con las acciones habituales: `🔍 Consultar`, `📚 Notas`, `🏛️ Palacios`, `🧠 Memorizar`, `🎯 Quiz`, `🔄 Reindexar` y `❓ Ayuda`. No hace falta escribir `/query` ni recordar la sintaxis:
+
+- **Consultar** → escribe la pregunta en el siguiente mensaje.
+- **Memorizar** → escribe el número, título o tema de la nota.
+- **Quiz** → escribe el número, título o tema de las notas.
+- **Notas**, **Palacios** y **Reindexar** se ejecutan al pulsar.
+- **Ayuda** vuelve a mostrar el menú y el estado.
+
+Los comandos de la tabla siguen funcionando para quien prefiera escribirlos, y el menú nativo de Telegram (`/`) incluye todos con su descripción.
 
 | Acción | Cómo |
 | --- | --- |
@@ -346,6 +356,7 @@ npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 | Borrar un palacio | `/palacio rm <número|ruta/o/tema>` |
 | Quiz interactivo | `/quiz tema`, `/quiz 7` o `/quiz notas A, B y C` · `/quiz stop` |
 | Ayuda + estado | `/start` |
+| Mostrar el teclado de acciones | `/menu` |
 
 El bot responde con título, ruta, tags y proveedor usado. Si el audio, la foto o el documento no se puede procesar, no se crea nota y se informa el error.
 

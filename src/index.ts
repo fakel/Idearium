@@ -1,6 +1,6 @@
 import { loadEnv } from './config/env.js';
 import { createRuntime } from './bootstrap.js';
-import { createBot } from './bot/index.js';
+import { createBot, telegramCommands } from './bot/index.js';
 import { logger } from './lib/logger.js';
 import { WatcherService } from './services/watcher.service.js';
 
@@ -19,6 +19,12 @@ async function main(): Promise<void> {
 
   const bot = createBot(runtime);
   await bot.init();
+  await bot.api.setMyCommands(telegramCommands).catch((error: unknown) => {
+    logger.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'bot.set_commands_failed',
+    );
+  });
   const remoteFirst = env.effectivePreference === 'remote_only' || env.effectivePreference === 'remote_first';
   const remote = env.remoteProviders[0];
   logger.info(
