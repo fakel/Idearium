@@ -8,7 +8,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 
-- OCR de fotos con `message:photo`, modelo multimodal de OpenRouter (`OPENROUTER_VISION_MODEL`; vacío usa `OPENROUTER_MODEL`), confirmación del texto detectado (usar, corregir o cancelar) antes de resumir, `image_file` en el frontmatter y `IMAGES_DIR`.
+- OCR de fotos con `message:photo`, `google/gemma-4-31b-it` por defecto y `qwen/qwen3-vl-30b-a3b-instruct` como alternativa automática o manual, prompt Markdown que conserva tablas, confirmación del texto detectado antes de resumir, `image_file` en el frontmatter e `IMAGES_DIR`.
 
 ### Corregido
 

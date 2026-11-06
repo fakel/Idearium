@@ -3,6 +3,8 @@ export type OcrStage = 'confirm' | 'editing';
 export interface PendingOcr {
   text: string;
   imageFile: string;
+  /** Modelo que produjo el texto; permite ofrecer el reintento con el alternativo. */
+  model: string;
   stage: OcrStage;
   createdAt: number;
   expiresAt: number;
@@ -20,11 +22,12 @@ export class PendingOcrStore {
     private readonly now: () => number = Date.now,
   ) {}
 
-  create(chatId: number, text: string, imageFile: string): PendingOcr {
+  create(chatId: number, text: string, imageFile: string, model = ''): PendingOcr {
     const now = this.now();
     const pending: PendingOcr = {
       text,
       imageFile,
+      model,
       stage: 'confirm',
       createdAt: now,
       expiresAt: now + this.ttlMs,
@@ -48,10 +51,11 @@ export class PendingOcrStore {
   }
 
   /** Guarda el texto corregido y vuelve a pedir confirmación. */
-  updateText(chatId: number, text: string): PendingOcr | undefined {
+  updateText(chatId: number, text: string, model?: string): PendingOcr | undefined {
     const pending = this.get(chatId);
     if (!pending) return undefined;
     pending.text = text;
+    if (model) pending.model = model;
     pending.stage = 'confirm';
     pending.expiresAt = this.now() + this.ttlMs;
     return pending;

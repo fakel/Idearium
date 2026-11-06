@@ -397,12 +397,13 @@ Límites: los PDF escaneados sin capa de texto no se pueden leer sin OCR; el tex
 Puedes enviar una foto como foto normal de Telegram (no como archivo). El bot:
 
 1. Elige la resolución más grande que envió Telegram y la descarga en `IMAGES_DIR` (20 MB máximo).
-2. La envía al modelo multimodal configurado en `OPENROUTER_VISION_MODEL`; si está vacío, usa `OPENROUTER_MODEL`.
-3. Muestra el texto detectado y pide confirmación con tres botones: **Usar este texto**, **Corregir** o **Cancelar**.
-4. Solo si confirmas, genera el resumen y sigue el flujo normal de carpeta/categoría.
-5. Guarda la nota con `image_file` en el frontmatter.
+2. La envía al modelo multimodal configurado en `OPENROUTER_VISION_MODEL` (`google/gemma-4-31b-it` por defecto) con un prompt que pide Markdown y conserva tablas, columnas, filas y notas.
+3. Si el modelo principal falla, reintenta automáticamente con `OPENROUTER_VISION_FALLBACK_MODEL` (`qwen/qwen3-vl-30b-a3b-instruct`).
+4. Muestra el texto detectado, el modelo usado y pide confirmación con **Usar este texto**, **Corregir** o **Cancelar**. Si el texto salió mal, **Reintentar con alternativa** vuelve a procesar la misma foto con Qwen.
+5. Solo si confirmas, genera el resumen y sigue el flujo normal de carpeta/categoría.
+6. Guarda la nota con `image_file` en el frontmatter.
 
-El modelo actual `deepseek/deepseek-v4.1-flash` acepta texto e imágenes, así que sirve para chat y OCR. Si cambias `OPENROUTER_MODEL` por uno solo-texto, define `OPENROUTER_VISION_MODEL` con un modelo multimodal.
+Gemma 4 31B es ~2,5× más barato que Qwen3-VL 30B y leyó igual de bien las pruebas con tablas; Qwen usa más resolución de imagen y queda como red de seguridad para documentos densos o letra pequeña.
 
 Límites: el OCR funciona bien con texto impreso y capturas; para manuscritos o fotos muy torcidas la calidad depende del modelo. Si no detecta texto, responde `No se detectó texto legible` y no crea una nota vacía. La foto sale hacia OpenRouter; no se usa OCR local.
 
@@ -532,7 +533,8 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `OPENROUTER_API_KEY` | vacío | Activa OpenRouter (chat, embeddings y STT) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Endpoint de chat/embeddings |
 | `OPENROUTER_MODEL` | vacío → `openai/gpt-4o-mini` | Modelo de chat de OpenRouter |
-| `OPENROUTER_VISION_MODEL` | vacío → `OPENROUTER_MODEL` | Modelo multimodal para OCR de fotos |
+| `OPENROUTER_VISION_MODEL` | `google/gemma-4-31b-it` | Modelo multimodal para OCR de fotos |
+| `OPENROUTER_VISION_FALLBACK_MODEL` | `qwen/qwen3-vl-30b-a3b-instruct` | Alternativa automática o bajo demanda para OCR |
 | `OPENROUTER_REASONING_EFFORT` | `none` | `none`, `minimal`, `low`, `medium`, `high`; `none` evita tokens de razonamiento |
 | `LLM_REMOTE_MODEL` | vacío | Alias histórico para el modelo de OpenRouter |
 | `RAG_TOP_K` | `8` | Candidatos recuperados; se filtran por distancia antes de responder |

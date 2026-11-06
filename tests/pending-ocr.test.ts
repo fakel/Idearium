@@ -4,15 +4,17 @@ import { PendingOcrStore } from '../src/services/pending-ocr.service.js';
 describe('PendingOcrStore', () => {
   it('guarda el texto OCR y pasa a edición y confirmación', () => {
     const store = new PendingOcrStore();
-    const created = store.create(1, 'texto detectado', '/vault/foto.jpg');
+    const created = store.create(1, 'texto detectado', '/vault/foto.jpg', 'gemma');
     expect(created.stage).toBe('confirm');
+    expect(created.model).toBe('gemma');
     expect(store.has(1)).toBe(true);
 
     store.setStage(1, 'editing');
     expect(store.get(1)?.stage).toBe('editing');
 
-    const updated = store.updateText(1, 'texto corregido');
+    const updated = store.updateText(1, 'texto corregido', 'qwen');
     expect(updated?.stage).toBe('confirm');
+    expect(updated?.model).toBe('qwen');
     expect(store.get(1)?.text).toBe('texto corregido');
     expect(updated?.imageFile).toBe('/vault/foto.jpg');
 

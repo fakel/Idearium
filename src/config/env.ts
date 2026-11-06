@@ -88,8 +88,10 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().trim().optional().default(''),
   OPENROUTER_BASE_URL: z.string().trim().min(1).default('https://openrouter.ai/api/v1'),
   OPENROUTER_MODEL: z.string().trim().default(''),
-  /** Modelo multimodal para OCR. Vacío = usa OPENROUTER_MODEL. */
-  OPENROUTER_VISION_MODEL: z.string().trim().default(''),
+  /** Modelo multimodal para OCR. */
+  OPENROUTER_VISION_MODEL: z.string().trim().default('google/gemma-4-31b-it'),
+  /** Alternativa que se prueba si el modelo principal falla o el usuario la pide. */
+  OPENROUTER_VISION_FALLBACK_MODEL: z.string().trim().default('qwen/qwen3-vl-30b-a3b-instruct'),
   /** none = sin tokens de razonamiento; subir solo para tareas que lo necesiten. */
   OPENROUTER_REASONING_EFFORT: z.enum(reasoningEfforts).default('none'),
   /** Alias histórico: si está definido, se usa como modelo de OpenRouter. */
@@ -116,6 +118,8 @@ export type Env = z.infer<typeof envSchema> & {
   hasRemoteEmbeddings: boolean;
   /** Multimodal model used for photo OCR; empty when OpenRouter is unavailable. */
   visionModel: string;
+  /** Alternative multimodal model for OCR retries; empty when unavailable. */
+  visionFallbackModel: string;
   /** Preference actually in effect (degraded to local_first when remote is unusable). */
   effectivePreference: LlmPreference;
 };
@@ -152,8 +156,9 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
   const hasRemote = remoteProviders.length > 0;
   const visionModel = hasRemote
-    ? parsed.OPENROUTER_VISION_MODEL || remoteProviders[0]!.model
+    ? parsed.OPENROUTER_VISION_MODEL || 'google/gemma-4-31b-it'
     : '';
+  const visionFallbackModel = hasRemote ? parsed.OPENROUTER_VISION_FALLBACK_MODEL : '';
   let effectivePreference = parsed.LLM_PREFERENCE;
   if (!hasRemote && (effectivePreference === 'remote_first' || effectivePreference === 'remote_only')) {
     console.warn(
@@ -169,6 +174,7 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     hasRemote,
     hasRemoteEmbeddings: parsed.EMBEDDING_PROVIDER === 'openrouter',
     visionModel,
+    visionFallbackModel,
     effectivePreference,
   };
 }

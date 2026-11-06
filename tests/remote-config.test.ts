@@ -58,6 +58,13 @@ describe('env remoto (solo OpenRouter)', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('usa Gemma para visión y Qwen como alternativa por defecto', () => {
+    const env = parseEnv({ OPENROUTER_API_KEY: 'or-key' });
+
+    expect(env.visionModel).toBe('google/gemma-4-31b-it');
+    expect(env.visionFallbackModel).toBe('qwen/qwen3-vl-30b-a3b-instruct');
+  });
+
   it('exige OPENROUTER_API_KEY para embeddings remotos', () => {
     expect(() => parseEnv({ EMBEDDING_PROVIDER: 'openrouter' })).toThrow(
       'EMBEDDING_PROVIDER=openrouter requiere OPENROUTER_API_KEY',

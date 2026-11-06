@@ -414,7 +414,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     try {
       const stored = await runtime.storage.saveTelegramPhoto(photo.file_id);
       const ocr = await runtime.ocr.extract(stored.path);
-      const waiting = pendingOcr.create(ctx.chat.id, ocr.text, stored.path);
+      const waiting = pendingOcr.create(ctx.chat.id, ocr.text, stored.path, ocr.model);
       await sendOcrConfirmation(ctx, waiting);
     } catch (error) {
       await replyError(ctx, error);
@@ -553,6 +553,27 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         return;
       }
 
+      if (data === 'ocr:retry') {
+        if (waiting.stage !== 'confirm') {
+          await ctx.reply('Envía primero el texto corregido.');
+          return;
+        }
+        if (!runtime.ocr.fallbackModel) {
+          await ctx.reply('No hay un modelo alternativo de OCR configurado.');
+          return;
+        }
+        await typing(ctx);
+        try {
+          const ocr = await runtime.ocr.extract(waiting.imageFile, { useFallback: true });
+          const updated = pendingOcr.updateText(chatId, ocr.text, ocr.model);
+          await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+          if (updated) await sendOcrConfirmation(ctx, updated);
+        } catch (error) {
+          await replyError(ctx, error);
+        }
+        return;
+      }
+
       if (data !== 'ocr:ok') return;
       if (waiting.stage !== 'confirm') {
         await ctx.reply('Envía primero el texto corregido.');
@@ -650,12 +671,16 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       preview,
     ];
     if (preview.length < waiting.text.length) lines.push('', '_Vista previa recortada._');
+    if (waiting.model) lines.push('', `_Modelo: ${waiting.model}_`);
     lines.push('', '¿Es correcto?');
     const keyboard = new InlineKeyboard()
       .text('✅ Usar este texto', 'ocr:ok')
       .row()
       .text('✏️ Corregir', 'ocr:edit')
       .text('❌ Cancelar', 'ocr:cancel');
+    if (runtime.ocr.fallbackModel && waiting.model !== runtime.ocr.fallbackModel) {
+      keyboard.row().text('🔄 Reintentar con alternativa', 'ocr:retry');
+    }
     await replyKeyboard(ctx, lines.join('\n'), keyboard);
   }
 

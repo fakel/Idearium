@@ -33,6 +33,7 @@ describe('OcrService', () => {
       expect(body.model).toBe('deepseek/deepseek-v4.1-flash');
       expect(body.reasoning.effort).toBe('none');
       expect(body.messages[0]!.content[0]!.type).toBe('text');
+      expect(body.messages[0]!.content[0]!.text).toContain('tabla Markdown');
       expect(body.messages[0]!.content[1]!.image_url?.url).toMatch(
         /^data:image\/jpeg;base64,/,
       );
@@ -54,6 +55,63 @@ describe('OcrService', () => {
       text: 'Recordatorio\n- arroz',
       model: 'deepseek/deepseek-v4.1-flash',
     });
+  });
+
+  it('cae al modelo alternativo si el principal falla', async () => {
+    const file = await imageFile();
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string };
+      calls.push(body.model);
+      if (calls.length === 1) {
+        return new Response('model unavailable', { status: 503 });
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'Texto del alternativo' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    const ocr = new OcrService({
+      apiKey: 'test-key',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'primary',
+      fallbackModel: 'fallback',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(ocr.extract(file)).resolves.toEqual({
+      text: 'Texto del alternativo',
+      model: 'fallback',
+    });
+    expect(calls).toEqual(['primary', 'fallback']);
+  });
+
+  it('puede forzar solo el modelo alternativo', async () => {
+    const file = await imageFile();
+    const models: string[] = [];
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string };
+      models.push(body.model);
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'Reintento' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    const ocr = new OcrService({
+      apiKey: 'test-key',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'primary',
+      fallbackModel: 'fallback',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(ocr.extract(file, { useFallback: true })).resolves.toEqual({
+      text: 'Reintento',
+      model: 'fallback',
+    });
+    expect(models).toEqual(['fallback']);
   });
 
   it('falla si no hay texto legible', async () => {

@@ -5,7 +5,7 @@ Esta imagen no instala Ollama, Whisper, CUDA ni drivers NVIDIA. Todo el trabajo 
 - **Chat**: modelo configurado en `OPENROUTER_MODEL`.
 - **Embeddings**: `OPENROUTER_EMBED_MODEL` (por defecto `baai/bge-m3`, 1024 dimensiones).
 - **STT**: `POST https://openrouter.ai/api/v1/audio/transcriptions` con `WHISPER_MODEL` (por defecto `openai/whisper-large-v3-turbo`).
-- **OCR de fotos**: `OPENROUTER_VISION_MODEL` (vacío = `OPENROUTER_MODEL`; debe aceptar imágenes).
+- **OCR de fotos**: `OPENROUTER_VISION_MODEL` (Gemma 4 31B por defecto) con `OPENROUTER_VISION_FALLBACK_MODEL` (Qwen3-VL 30B) como reintento.
 
 El vault y la base LanceDB quedan en volúmenes locales del host. No se usa Obsidian Sync.
 
@@ -32,7 +32,8 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_MODEL=openai/gpt-4o-mini
-OPENROUTER_VISION_MODEL=deepseek/deepseek-v4.1-flash
+OPENROUTER_VISION_MODEL=google/gemma-4-31b-it
+OPENROUTER_VISION_FALLBACK_MODEL=qwen/qwen3-vl-30b-a3b-instruct
 OPENROUTER_EMBED_MODEL=baai/bge-m3
 EMBEDDING_DIM=1024
 WHISPER_MODEL=openai/whisper-large-v3-turbo

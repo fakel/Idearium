@@ -85,6 +85,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     apiKey: env.OPENROUTER_API_KEY,
     baseUrl: env.OPENROUTER_BASE_URL,
     model: env.visionModel,
+    fallbackModel: env.visionFallbackModel,
     reasoningEffort: env.OPENROUTER_REASONING_EFFORT,
     timeoutMs: env.LLM_TIMEOUT_MS,
   });
