@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import pino from 'pino';
@@ -84,6 +84,19 @@ describe('Indexer + LanceDB', () => {
     await writeNote('perro.md', '## Perro\n\nEl perro ladra y corre.');
     const updated = await indexer.indexFile(file);
     expect(updated.skipped).toBe(false);
+  });
+
+  it('guarda el estado completo con indexaciones concurrentes', async () => {
+    const uno = await writeNote('uno.md', '## Uno\n\nPrimera nota.');
+    const dos = await writeNote('dos.md', '## Dos\n\nSegunda nota.');
+    await Promise.all([indexer.indexFile(uno), indexer.indexFile(dos)]);
+
+    const state = JSON.parse(await readFile(path.join(root, 'index-state.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(state[path.resolve(uno)]).toBeDefined();
+    expect(state[path.resolve(dos)]).toBeDefined();
   });
 
   it('reindexAll ignora .obsidian y elimina notas borradas', async () => {

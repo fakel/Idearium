@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { chunkMarkdown } from '../lib/text.js';
@@ -39,6 +39,8 @@ type IndexState = Record<string, StateEntry>;
 
 export class Indexer {
   private state?: IndexState;
+  private statePromise?: Promise<IndexState>;
+  private saveQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly config: IndexerConfig,
@@ -154,19 +156,38 @@ export class Indexer {
 
   private async loadState(): Promise<IndexState> {
     if (this.state) return this.state;
-    try {
-      const raw = await readFile(this.config.stateFile, 'utf8');
-      this.state = JSON.parse(raw) as IndexState;
-    } catch {
-      this.state = {};
+    if (!this.statePromise) {
+      this.statePromise = (async () => {
+        try {
+          const raw = await readFile(this.config.stateFile, 'utf8');
+          this.state = JSON.parse(raw) as IndexState;
+        } catch {
+          this.state = {};
+        }
+        return this.state;
+      })();
     }
-    return this.state;
+    return this.statePromise;
   }
 
   private async saveState(state: IndexState): Promise<void> {
-    await mkdir(path.dirname(this.config.stateFile), { recursive: true });
-    const tmp = `${this.config.stateFile}.tmp`;
-    await writeFile(tmp, JSON.stringify(state, null, 2), 'utf8');
-    await rename(tmp, this.config.stateFile);
+    // La instantánea se toma ahora; las escrituras se serializan para que dos
+    // indexaciones concurrentes no compartan el mismo temporal.
+    const data = JSON.stringify(state, null, 2);
+    const write = this.saveQueue.then(async () => {
+      await mkdir(path.dirname(this.config.stateFile), { recursive: true });
+      const tmp = `${this.config.stateFile}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(tmp, data, 'utf8');
+        await rename(tmp, this.config.stateFile);
+      } finally {
+        await unlink(tmp).catch(() => undefined);
+      }
+    });
+    this.saveQueue = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    return write;
   }
 }
