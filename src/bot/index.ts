@@ -111,9 +111,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
 
     await typing(ctx);
     try {
-      if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
-        return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
-      }
+      if (await rejectIfCapturePending(ctx, ctx.chat.id, 'usar /remoto')) return;
+      if (await rejectIfQuizActive(ctx, ctx.chat.id, 'usar /remoto')) return;
       const prepared = await runtime.ingest.prepareText(text, {
         source: 'telegram_text',
         remote: true,
@@ -140,6 +139,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   bot.command('cluster', async (ctx) => {
     const topic = ctx.match.trim();
     if (!topic) return reply(ctx, 'Uso: /cluster <tema>');
+    if (await rejectIfQuizActive(ctx, ctx.chat.id, 'usar /cluster')) return;
     await typing(ctx);
     try {
       const result = await runtime.cluster.run(topic);
@@ -180,6 +180,26 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       `Notas indexadas (chunks): ${count}`,
     ].join('\n');
     await ctx.reply(text.slice(0, maxTelegramChars), { reply_markup: mainMenuKeyboard() });
+  }
+
+  async function rejectIfQuizActive(
+    ctx: Context,
+    chatId: number,
+    action: string,
+  ): Promise<boolean> {
+    if (!runtime.quiz.hasSession(chatId)) return false;
+    await reply(ctx, `Hay un quiz activo. Termínalo con /quiz stop antes de ${action}.`);
+    return true;
+  }
+
+  async function rejectIfCapturePending(
+    ctx: Context,
+    chatId: number,
+    action: string,
+  ): Promise<boolean> {
+    if (!pending.has(chatId) && !pendingOcr.has(chatId)) return false;
+    await reply(ctx, `Tienes una captura pendiente. Termínala o usa /cancelar antes de ${action}.`);
+    return true;
   }
 
   async function handleMenuButton(ctx: Context, action: MenuButtonAction): Promise<void> {
@@ -235,6 +255,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       if (!target) {
         return reply(ctx, 'Uso: /notas rm <número|título|ruta>');
       }
+      const chatId = ctx.chat?.id;
+      if (chatId && (await rejectIfQuizActive(ctx, chatId, 'borrar notas'))) return;
       await typing(ctx);
       try {
         const deleted = await runtime.memorize.deleteNote(target);
@@ -311,6 +333,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   }
 
   async function runReindex(ctx: Context): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (chatId && (await rejectIfQuizActive(ctx, chatId, 'reindexar'))) return;
     await reply(ctx, 'Reindexando el vault… esto puede tardar.');
     try {
       const result = await runtime.indexer.reindexAll();
@@ -332,6 +356,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     }
     const chatId = ctx.chat?.id;
     if (!chatId) return;
+    if (await rejectIfQuizActive(ctx, chatId, 'crear un palacio')) return;
+    if (await rejectIfCapturePending(ctx, chatId, 'crear un palacio')) return;
 
     await typing(ctx);
     try {
@@ -373,6 +399,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         if (!requested) {
           return reply(ctx, 'Uso: /palacio rm <número|nota|tema>');
         }
+        const chatId = ctx.chat?.id;
+        if (chatId && (await rejectIfQuizActive(ctx, chatId, 'borrar un palacio'))) return;
         const index = parsePalaceIndex(requested);
         let targetPath = requested;
         if (index !== null) {
@@ -452,6 +480,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!topic) return reply(ctx, 'Uso: /quiz <tema> o /quiz stop');
     if (topic.toLowerCase() !== 'stop' && (pending.has(chatId) || pendingOcr.has(chatId))) {
       return reply(ctx, 'Termina la captura pendiente o usa /cancelar antes de empezar un quiz.');
+    }
+    if (topic.toLowerCase() !== 'stop' && runtime.quiz.hasSession(chatId)) {
+      return reply(ctx, 'Ya hay un quiz activo. Termínalo con /quiz stop antes de empezar otro.');
     }
     if (topic.toLowerCase() === 'stop') {
       const stopped = runtime.quiz.stop(chatId);
