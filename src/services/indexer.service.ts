@@ -11,6 +11,8 @@ export interface IndexerConfig {
   vaultPath: string;
   notesDir: string;
   stateFile: string;
+  /** Identidad del modelo de embeddings; si cambia, se reindexa. */
+  embedding?: string;
   embeddingBatchSize?: number;
   maxChunkChars?: number;
   overlapChars?: number;
@@ -35,7 +37,10 @@ interface StateEntry {
   chunks: number;
 }
 
-type IndexState = Record<string, StateEntry>;
+interface IndexState {
+  embedding?: string;
+  files: Record<string, StateEntry>;
+}
 
 export class Indexer {
   private state?: IndexState;
@@ -54,9 +59,10 @@ export class Indexer {
     const content = await readFile(absolute, 'utf8');
     const hash = createHash('sha256').update(content).digest('hex');
     const state = await this.loadState();
-    const previous = state[absolute];
+    const previous = state.files[absolute];
+    const embeddingChanged = this.config.embedding !== undefined && state.embedding !== this.config.embedding;
 
-    if (!options.force && previous?.hash === hash) {
+    if (!options.force && !embeddingChanged && previous?.hash === hash) {
       return { path: absolute, chunks: previous.chunks, skipped: true };
     }
 
@@ -95,11 +101,12 @@ export class Indexer {
     }
 
     await this.vector.upsertNote(absolute, rows);
-    state[absolute] = {
+    state.files[absolute] = {
       hash,
       mtimeMs: Date.now(),
       chunks: rows.length,
     };
+    if (this.config.embedding !== undefined) state.embedding = this.config.embedding;
     await this.saveState(state);
     this.log.info({ path: absolute, chunks: rows.length }, 'indexer.indexed');
     return { path: absolute, chunks: rows.length, skipped: false };
@@ -109,7 +116,7 @@ export class Indexer {
     const absolute = path.resolve(filePath);
     await this.vector.deleteByPath(absolute);
     const state = await this.loadState();
-    delete state[absolute];
+    delete state.files[absolute];
     await this.saveState(state);
     this.log.info({ path: absolute }, 'indexer.removed');
   }
@@ -135,7 +142,7 @@ export class Indexer {
     }
 
     const state = await this.loadState();
-    for (const known of Object.keys(state)) {
+    for (const known of Object.keys(state.files)) {
       if (!seen.has(known)) {
         await this.removeFile(known);
         result.removed += 1;
@@ -159,10 +166,20 @@ export class Indexer {
     if (!this.statePromise) {
       this.statePromise = (async () => {
         try {
-          const raw = await readFile(this.config.stateFile, 'utf8');
-          this.state = JSON.parse(raw) as IndexState;
+          const parsed = JSON.parse(await readFile(this.config.stateFile, 'utf8')) as Record<
+            string,
+            unknown
+          >;
+          if (parsed.files && typeof parsed.files === 'object' && !Array.isArray(parsed.files)) {
+            this.state = {
+              ...(typeof parsed.embedding === 'string' ? { embedding: parsed.embedding } : {}),
+              files: parsed.files as Record<string, StateEntry>,
+            };
+          } else {
+            this.state = { files: parsed as Record<string, StateEntry> };
+          }
         } catch {
-          this.state = {};
+          this.state = { files: {} };
         }
         return this.state;
       })();

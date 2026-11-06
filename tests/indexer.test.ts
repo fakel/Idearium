@@ -88,17 +88,46 @@ describe('Indexer + LanceDB', () => {
     expect(await vector.count()).toBe(1);
   });
 
+  it('reindexa cuando cambia el modelo de embeddings', async () => {
+    const file = await writeNote('modelo.md', '## Modelo\n\nContenido estable.');
+    const first = new Indexer(
+      {
+        vaultPath: root,
+        notesDir: path.join(root, 'Idearium'),
+        stateFile: path.join(root, 'index-state.json'),
+        embedding: 'ollama:bge-m3:4',
+      },
+      vector,
+      embedder,
+      pino({ level: 'silent' }),
+    );
+    await first.indexFile(file);
+    expect((await first.indexFile(file)).skipped).toBe(true);
+
+    const second = new Indexer(
+      {
+        vaultPath: root,
+        notesDir: path.join(root, 'Idearium'),
+        stateFile: path.join(root, 'index-state.json'),
+        embedding: 'openrouter:baai/bge-m3:4',
+      },
+      vector,
+      embedder,
+      pino({ level: 'silent' }),
+    );
+    expect((await second.indexFile(file)).skipped).toBe(false);
+  });
+
   it('guarda el estado completo con indexaciones concurrentes', async () => {
     const uno = await writeNote('uno.md', '## Uno\n\nPrimera nota.');
     const dos = await writeNote('dos.md', '## Dos\n\nSegunda nota.');
     await Promise.all([indexer.indexFile(uno), indexer.indexFile(dos)]);
 
-    const state = JSON.parse(await readFile(path.join(root, 'index-state.json'), 'utf8')) as Record<
-      string,
-      unknown
-    >;
-    expect(state[path.resolve(uno)]).toBeDefined();
-    expect(state[path.resolve(dos)]).toBeDefined();
+    const state = JSON.parse(await readFile(path.join(root, 'index-state.json'), 'utf8')) as {
+      files: Record<string, unknown>;
+    };
+    expect(state.files[path.resolve(uno)]).toBeDefined();
+    expect(state.files[path.resolve(dos)]).toBeDefined();
   });
 
   it('reindexAll ignora .obsidian y elimina notas borradas', async () => {

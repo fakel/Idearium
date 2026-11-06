@@ -46,6 +46,8 @@ export async function createRuntime(env: Env): Promise<Runtime> {
   const vector = new VectorService(env.LANCEDB_PATH, env.EMBEDDING_DIM);
   await vector.open();
 
+  const embeddingModel =
+    env.EMBEDDING_PROVIDER === 'openrouter' ? env.OPENROUTER_EMBED_MODEL : env.OLLAMA_EMBED_MODEL;
   const embedder: Embedder =
     env.EMBEDDING_PROVIDER === 'openrouter'
       ? new OpenAICompatibleEmbeddingService({
@@ -68,6 +70,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
       vaultPath: env.OBSIDIAN_VAULT_PATH,
       notesDir: env.notesDir,
       stateFile: path.join(path.dirname(env.LANCEDB_PATH), 'index-state.json'),
+      embedding: `${env.EMBEDDING_PROVIDER}:${embeddingModel}:${env.EMBEDDING_DIM}`,
     },
     vector,
     embedder,
