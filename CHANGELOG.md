@@ -15,6 +15,21 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 - Las 22 notas del curso se migraron de `00`–`21` a prefijos `NNNN`: `0000`–`0021`, con títulos, aliases y wikilinks actualizados.
 - La numeración global cuenta los prefijos `NNNN` del curso: con las notas `0000`–`0021`, la siguiente captura recibe `0022` en lugar de reiniciar en `0001`.
+- El bot solo responde en chats privados; en grupos y canales se niega para no exponer notas, consultas ni palacios.
+- `/memorize`, `/palacio rm`, `/notas rm`, `/cluster`, `/reindex` y `/remoto` respetan un quiz o una captura pendiente en lugar de mezclar estados.
+- Las rutas absolutas fuera del vault se rechazan al leer y escribir notas y palacios.
+- El índice guarda el modelo y la dimensión de embeddings y fuerza la reindexación cuando cambian.
+- La reserva del nombre de nota usa `O_EXCL`, evitando que dos procesos pisen el mismo archivo.
+- El estado del indexador se serializa y usa temporales únicos; una reindexación concurrente ya no pierde notas.
+- Los chunks nuevos se insertan antes de borrar los antiguos, para no perder una nota si falla la escritura.
+- Los estudios de `/cluster` no se sobrescriben si se repiten el mismo día.
+- El TTL de la captura se renueva al elegir carpeta.
+- El callback de selección de palacio limpia el flujo pendiente y respeta quiz/capturas.
+- Las respuestas de embeddings se ordenan por `index`; los vectores no se asignan al texto equivocado.
+- La allowlist de Telegram valida IDs numéricos al arrancar.
+- El instalador y `doctor` exigen Node.js 24, igual que `unpdf`.
+- El STT envía el audio como `Blob` sin duplicarlo en memoria y reintenta 429/408.
+- `package.json` apunta `main` al entry compilado.
 
 ### Seguridad
 

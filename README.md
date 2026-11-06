@@ -225,7 +225,7 @@ El bot usa **long polling**: no necesitas dominio, webhook ni abrir puertos.
 
    Ese es tu `TELEGRAM_BOT_TOKEN`. **No lo compartas ni lo subas al repo.**
 6. Opcional: envía `/setdescription` y `/setuserpic` a BotFather para personalizar el bot.
-7. Opcional: envía `/setprivacy` → `Disable` solo si quieres que el bot lea todos los mensajes de un grupo; para uso personal en chat privado no hace falta.
+7. Opcional: envía `/setdescription` y `/setuserpic` a BotFather para personalizar el bot. El bot solo responde en **chats privados**; no lo uses en grupos.
 
 > Si el token se filtra: `/revoke` en BotFather genera uno nuevo y anula el anterior. Actualiza `.env` después.
 
@@ -255,7 +255,7 @@ TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
 Notas:
 
 - El token va **sin comillas** y sin espacios alrededor del `=`.
-- Si el ID es negativo (grupos/canales), también se admite; para uso normal usa tu ID positivo.
+- Usa tu ID **positivo** de usuario. El bot rechaza grupos y canales por privacidad, aunque el ID esté en la allowlist.
 - El bot **se niega a arrancar** si el token o la allowlist están vacíos: es intencional para no dejar un bot abierto.
 - `.env` está en `.gitignore`; no lo comitees.
 
@@ -322,7 +322,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 106 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
+npm test         # 124 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -608,6 +608,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - Con STT remoto, el audio sale hacia el proveedor configurado en `WHISPER_API_URL`.
 - Con OCR remoto, la foto sale hacia OpenRouter; el texto detectado se guarda en la nota.
 - Los audios se guardan en `data/audio/`; bórralos cuando quieras.
+- El bot solo funciona en chats privados: en grupos o canales se niega a responder para no exponer tus notas a terceros.
 
 ## Estado y roadmap
 
