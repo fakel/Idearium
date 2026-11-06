@@ -225,7 +225,7 @@ El bot usa **long polling**: no necesitas dominio, webhook ni abrir puertos.
 
    Ese es tu `TELEGRAM_BOT_TOKEN`. **No lo compartas ni lo subas al repo.**
 6. Opcional: envía `/setdescription` y `/setuserpic` a BotFather para personalizar el bot.
-7. Opcional: envía `/setdescription` y `/setuserpic` a BotFather para personalizar el bot. El bot solo responde en **chats privados**; no lo uses en grupos.
+7. El bot solo responde en **chats privados**; no hace falta configurar la privacidad para grupos.
 
 > Si el token se filtra: `/revoke` en BotFather genera uno nuevo y anula el anterior. Actualiza `.env` después.
 
