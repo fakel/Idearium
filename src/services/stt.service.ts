@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
 import path from 'node:path';
 import { withRetry } from '../lib/retry.js';
 
@@ -33,13 +33,13 @@ export class SttService {
 
   async transcribe(filePath: string): Promise<Transcription> {
     const url = `${this.config.baseUrl.replace(/\/+$/, '')}/v1/audio/transcriptions`;
-    const buffer = await readFile(filePath);
     const extension = path.extname(filePath).replace('.', '') || 'ogg';
+    const blob = await openAsBlob(filePath, { type: 'application/octet-stream' });
 
     return withRetry(
       async () => {
         const form = new FormData();
-        form.append('file', new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' }), path.basename(filePath));
+        form.append('file', blob, path.basename(filePath));
         if (this.config.model) form.append('model', this.config.model);
 
         const response = await this.fetchImpl(url, {
