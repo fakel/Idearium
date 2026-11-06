@@ -33,7 +33,7 @@ function setup(hits: SearchHit[]) {
 }
 
 describe('RagService', () => {
-  it('responde con contexto y fuentes deduplicadas', async () => {
+  it('responde con contexto y solo fuentes citadas', async () => {
     const { rag, completeText } = setup([
       hit(),
       hit({ id: '2', chunkIndex: 1 }),
@@ -43,13 +43,42 @@ describe('RagService', () => {
     const answer = await rag.query('¿Dónde duerme el gato?');
 
     expect(answer.answer).toContain('Gato');
-    expect(answer.sources).toHaveLength(2);
+    expect(answer.sources).toHaveLength(1);
     expect(answer.sources[0]!.title).toBe('Gato');
 
     const request = completeText.mock.calls[0]![0] as { messages: { content: string }[] };
     const userMessage = request.messages.find((message) => message.content.includes('Pregunta:'));
     expect(userMessage?.content).toContain('[1] Gato (/vault/Idearium/gato.md)');
     expect(userMessage?.content).toContain('El perro ladra.');
+  });
+
+  it('descarta resultados lejanos al mejor hit', async () => {
+    const { rag, completeText } = setup([
+      hit({ distance: 0.2 }),
+      hit({
+        id: '2',
+        notePath: '/vault/Idearium/perro.md',
+        title: 'Perro',
+        text: 'El perro ladra.',
+        distance: 0.9,
+      }),
+    ]);
+
+    const answer = await rag.query('¿Dónde duerme el gato?');
+
+    const request = completeText.mock.calls[0]![0] as { messages: { content: string }[] };
+    const userMessage = request.messages.find((message) => message.content.includes('Pregunta:'));
+    expect(userMessage?.content).not.toContain('El perro ladra.');
+    expect(answer.sources).toHaveLength(1);
+  });
+
+  it('no lista fuentes que la respuesta no cita', async () => {
+    const { rag } = setup([hit()]);
+
+    const answer = await rag.query('¿Dónde duerme el gato?');
+
+    expect(answer.sources).toHaveLength(1);
+    expect(answer.sources[0]!.path).toBe('/vault/Idearium/gato.md');
   });
 
   it('no inventa nada cuando no hay resultados', async () => {

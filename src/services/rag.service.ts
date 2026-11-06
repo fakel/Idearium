@@ -14,6 +14,10 @@ export interface TextCompleter {
 export interface RagConfig {
   topK: number;
   maxContextChars?: number;
+  /** Margen relativo sobre el mejor hit para descartar resultados lejanos. */
+  relevanceRatio?: number;
+  /** Fragmentos máximos que puede aportar una misma nota. */
+  maxChunksPerNote?: number;
 }
 
 export interface RagSource {
@@ -30,6 +34,9 @@ export interface RagAnswer {
 }
 
 const fallbackAnswer = 'No encontré notas relacionadas con esa consulta en tu vault.';
+const defaultRelevanceRatio = 0.12;
+const minRelevanceMargin = 0.08;
+const defaultMaxChunksPerNote = 2;
 
 export class RagService {
   constructor(
@@ -46,7 +53,7 @@ export class RagService {
     const [vector] = await this.embedder.embed([trimmed]);
     if (!vector) throw new Error('No se pudo generar el embedding de la consulta.');
 
-    const hits = await this.vector.search(vector, this.config.topK);
+    const hits = this.selectHits(await this.vector.search(vector, this.config.topK));
     if (hits.length === 0) {
       return { answer: fallbackAnswer, sources: [] };
     }
@@ -61,6 +68,7 @@ export class RagService {
             'Responde en español, de forma concisa y útil.',
             'Usa exclusivamente la información del CONTEXTO entregado; no inventes datos.',
             'Cita las notas que uses con wikilinks de Obsidian: [[Título de la nota]].',
+            'No enumeres notas que no uses; cita solo las fuentes que sustentan la respuesta.',
             'Si el contexto no alcanza para responder, dilo explícitamente y sugiere qué nota falta.',
           ].join(' '),
         },
@@ -73,10 +81,34 @@ export class RagService {
       temperature: 0.2,
     });
 
+    const answer = completion.value.trim();
     return {
-      answer: completion.value.trim(),
-      sources: dedupeSources(hits),
+      answer,
+      sources: citedSources(answer, hits),
     };
+  }
+
+  /**
+   * LanceDB devuelve siempre topK, aunque no haya tanto contenido relevante.
+   * Nos quedamos con los hits cercanos al mejor y limitamos los chunks por nota.
+   */
+  private selectHits(hits: SearchHit[]): SearchHit[] {
+    if (hits.length === 0) return [];
+
+    const sorted = [...hits].sort((a, b) => a.distance - b.distance);
+    const best = sorted[0]!;
+    const ratio = this.config.relevanceRatio ?? defaultRelevanceRatio;
+    const cutoff = best.distance + Math.max(minRelevanceMargin, best.distance * ratio);
+    const maxPerNote = this.config.maxChunksPerNote ?? defaultMaxChunksPerNote;
+    const counts = new Map<string, number>();
+
+    return sorted.filter((hit) => {
+      if (hit.distance > cutoff) return false;
+      const count = counts.get(hit.notePath) ?? 0;
+      if (count >= maxPerNote) return false;
+      counts.set(hit.notePath, count + 1);
+      return true;
+    });
   }
 
   private buildContext(hits: SearchHit[]): string {
@@ -98,12 +130,20 @@ export class RagService {
   }
 }
 
-function dedupeSources(hits: SearchHit[]): RagSource[] {
+function citedSources(answer: string, hits: SearchHit[]): RagSource[] {
+  const citations = new Set(
+    [...answer.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => {
+      const target = (match[1] ?? '').split('|')[0]!.split('#')[0]!.trim();
+      return normalizeCitation(target);
+    }),
+  );
+  if (citations.size === 0) return [];
+
   const seen = new Set<string>();
   const sources: RagSource[] = [];
 
   for (const hit of hits) {
-    if (seen.has(hit.notePath)) continue;
+    if (seen.has(hit.notePath) || !isCited(hit, citations)) continue;
     seen.add(hit.notePath);
     sources.push({
       title: hit.title,
@@ -115,4 +155,21 @@ function dedupeSources(hits: SearchHit[]): RagSource[] {
   }
 
   return sources;
+}
+
+function isCited(hit: SearchHit, citations: Set<string>): boolean {
+  const title = normalizeCitation(hit.title);
+  const basename = normalizeCitation(hit.notePath.split('/').pop() ?? '');
+  const notePath = normalizeCitation(hit.notePath);
+
+  for (const citation of citations) {
+    if (citation === title || citation === basename) return true;
+    if (notePath === citation || notePath.endsWith(`/${citation}`)) return true;
+  }
+
+  return false;
+}
+
+function normalizeCitation(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\.md$/i, '').trim().toLowerCase();
 }
