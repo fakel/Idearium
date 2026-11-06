@@ -197,9 +197,9 @@ export class ObsidianService {
         max = Math.max(max, Number(match[1]));
         continue;
       }
-      // Notas del curso con prefijo de dos dígitos: "00 Indice.md", "21 Glosario.md".
+      // Notas del curso con prefijo NNNN: "0000 Indice.md", "0021 Glosario.md".
       // También cuentan para que una captura nueva no reutilice números ya usados.
-      const course = /^(\d{2})[\s_-]/.exec(name);
+      const course = /^(\d{4,})\s/.exec(name);
       if (course) max = Math.max(max, Number(course[1]));
     }
     return max + 1;

@@ -9,8 +9,10 @@ export function formatNoteList(notes: NoteRef[]): string {
 
   const lines = [`📚 ${sorted.length} ${sorted.length === 1 ? 'nota' : 'notas'}`, ''];
   for (const note of sorted) {
-    if (note.noteNumber) {
-      lines.push(`${String(note.noteNumber).padStart(4, '0')} — ${note.title}`);
+    if (note.noteNumber !== undefined) {
+      // Las notas del curso ya llevan el número en el título.
+      const title = note.title.replace(/^\d{4,}\s*—\s*/, '');
+      lines.push(`${String(note.noteNumber).padStart(4, '0')} — ${title}`);
     } else {
       lines.push(note.title);
     }

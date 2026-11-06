@@ -63,8 +63,8 @@ describe('ObsidianService', () => {
   });
 
   it('cuenta los prefijos de dos dígitos de las notas del curso', async () => {
-    await writeFile(path.join(vault, '00 Indice.md'), '# índice\n', 'utf8');
-    await writeFile(path.join(vault, '21 Glosario.md'), '# glosario\n', 'utf8');
+    await writeFile(path.join(vault, '0000 Indice.md'), '# índice\n', 'utf8');
+    await writeFile(path.join(vault, '0021 Glosario.md'), '# glosario\n', 'utf8');
 
     const note = await service.write({
       digest,

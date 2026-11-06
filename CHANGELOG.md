@@ -12,8 +12,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Corregido
 
-- Las notas del curso con prefijo de dos dígitos (`00`–`21`) se pueden consultar con `/notas 00`, sin asignarles `note_number` ni chocar con la numeración global de capturas.
-- La numeración global cuenta los prefijos de dos dígitos del curso: con las notas `00`–`21`, la siguiente captura recibe `0022` en lugar de reiniciar en `0001`.
+- Las 22 notas del curso se migraron de `00`–`21` a prefijos `NNNN`: `0000`–`0021`, con títulos, aliases y wikilinks actualizados.
+- La numeración global cuenta los prefijos `NNNN` del curso: con las notas `0000`–`0021`, la siguiente captura recibe `0022` en lugar de reiniciar en `0001`.
 
 ## [0.1.0] - 2026-11-06
 

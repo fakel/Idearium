@@ -203,17 +203,14 @@ export class NoteSelectorService {
     if (numeric) {
       const raw = numeric[1];
       const notes = await this.listNotes();
-
-      // Las notas del curso usan prefijos de dos dígitos ("00 Indice.md")
-      // y no tienen note_number para no chocar con la numeración global.
-      if (raw.length === 2) {
-        const prefix = new RegExp(`^${raw}(?:\\s|[-_.])`);
-        const course = notes.find((note) => prefix.test(path.basename(note.path, '.md')));
-        if (course) return course;
-      }
-
       const wanted = Number(raw);
-      return notes.find((note) => note.noteNumber === wanted) ?? null;
+      const byNumber = notes.find((note) => note.noteNumber === wanted);
+      if (byNumber) return byNumber;
+
+      // Notas del curso con prefijo NNNN ("0000 Indice.md"), por si su
+      // note_number no está en el frontmatter.
+      const prefix = new RegExp(`^${raw}(?:\\s|[-_.])`);
+      return notes.find((note) => prefix.test(path.basename(note.path, '.md'))) ?? null;
     }
 
     if (trimmed.endsWith('.md')) {
@@ -308,14 +305,18 @@ export class NoteSelectorService {
       typeof parsed.data.title === 'string' && parsed.data.title.trim()
         ? parsed.data.title.trim()
         : path.basename(file, '.md');
+    const baseName = path.basename(file, '.md');
     const fromData = Number(parsed.data.note_number);
-    const fromName = /^(\d{4,})-.+-\d{6}$/.exec(path.basename(file, '.md'));
+    const fromName = /^(\d{4,})-.+-\d{6}$/.exec(baseName);
+    const fromCourse = /^(\d{4,})\s/.exec(baseName);
     const noteNumber =
       Number.isSafeInteger(fromData) && fromData > 0
         ? fromData
         : fromName
           ? Number(fromName[1])
-          : undefined;
+          : fromCourse
+            ? Number(fromCourse[1])
+            : undefined;
 
     return {
       title,

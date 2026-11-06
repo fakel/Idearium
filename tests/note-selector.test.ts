@@ -127,11 +127,11 @@ describe('NoteSelectorService', () => {
     expect(byPadded.notes[0]?.title).toBe('Comprar filtros');
   });
 
-  it('resuelve notas del curso por prefijo de dos dígitos', async () => {
+  it('resuelve notas del curso por prefijo NNNN', async () => {
     const dir = await vault();
     const courseDir = path.join(dir, 'Aprendizaje', 'Idearium');
     await mkdir(courseDir, { recursive: true });
-    await writeFile(path.join(courseDir, '00 Indice.md'), note('Índice del curso'), 'utf8');
+    await writeFile(path.join(courseDir, '0000 Indice.md'), note('Índice del curso'), 'utf8');
     await writeFile(
       path.join(dir, '0001-captura-061126.md'),
       note('Captura').replace('category: idea', 'category: idea\nnote_number: 1'),
@@ -139,7 +139,7 @@ describe('NoteSelectorService', () => {
     );
 
     const selector = new NoteSelectorService({ vaultPath: dir }, fakeVector([]), fakeEmbedder());
-    const course = await selector.select('00');
+    const course = await selector.select('0000');
     const capture = await selector.select('0001');
 
     expect(course.notes[0]?.title).toBe('Índice del curso');
