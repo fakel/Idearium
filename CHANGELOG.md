@@ -4,7 +4,7 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
-## [Unreleased]
+## [0.1.1] - 2026-11-06
 
 ### Añadido
 
@@ -132,8 +132,9 @@ Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice
 
 - Los PDF escaneados sin capa de texto no se leen todavía; requieren OCR (F5 del plan).
 - El modo webhook de Telegram está planificado pero no implementado; se usa polling (F6).
-- No hay comando `/delete`; las notas se borran desde Obsidian o el sistema de archivos y el watcher/reindex limpia el índice.
+- Las notas se borran con `/notas rm`; si se eliminan desde Obsidian, el watcher o `/reindex` limpia el índice.
 - No hay pruebas automáticas de llamadas reales a OpenRouter por falta de clave en el entorno de desarrollo.
 
+[0.1.1]: https://github.com/fakel/Idearium/releases/tag/v0.1.1
 [0.1.0]: https://github.com/fakel/Idearium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/fakel/Idearium/releases/tag/v0.0.1
