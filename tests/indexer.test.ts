@@ -76,7 +76,8 @@ describe('Indexer + LanceDB', () => {
 
   it('salta notas sin cambios y reindexa cuando cambian', async () => {
     const file = await writeNote('perro.md', '## Perro\n\nEl perro ladra.');
-    await indexer.indexFile(file);
+    const first = await indexer.indexFile(file);
+    expect(first.chunks).toBe(1);
 
     const skipped = await indexer.indexFile(file);
     expect(skipped.skipped).toBe(true);
@@ -84,6 +85,7 @@ describe('Indexer + LanceDB', () => {
     await writeNote('perro.md', '## Perro\n\nEl perro ladra y corre.');
     const updated = await indexer.indexFile(file);
     expect(updated.skipped).toBe(false);
+    expect(await vector.count()).toBe(1);
   });
 
   it('guarda el estado completo con indexaciones concurrentes', async () => {

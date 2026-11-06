@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { Field, FixedSizeList, Float32, Int32, Schema, Utf8 } from 'apache-arrow';
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
@@ -114,10 +115,17 @@ export class VectorService implements VectorStore {
 
   async upsertNote(notePath: string, rows: VectorRow[]): Promise<void> {
     const table = await this.requireTable();
-    await table.delete(`note_path = '${escapeSql(notePath)}'`);
-    if (rows.length > 0) {
-      await table.add(rows as unknown as Record<string, unknown>[]);
+    if (rows.length === 0) {
+      await table.delete(`note_path = '${escapeSql(notePath)}'`);
+      return;
     }
+
+    // Inserta primero con ids nuevos; si la inserción falla, los chunks
+    // anteriores siguen ahí. Después elimina solo los chunks viejos.
+    const fresh = rows.map((row) => ({ ...row, id: `${row.id}-${randomUUID()}` }));
+    await table.add(fresh as unknown as Record<string, unknown>[]);
+    const ids = fresh.map((row) => `'${escapeSql(row.id)}'`).join(', ');
+    await table.delete(`note_path = '${escapeSql(notePath)}' AND id NOT IN (${ids})`);
   }
 
   async deleteByPath(notePath: string): Promise<void> {
