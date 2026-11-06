@@ -40,4 +40,12 @@ describe('PendingCaptureStore', () => {
     expect(store.get(1, 500)).toBeDefined();
     expect(store.get(1, 1001)).toBeUndefined();
   });
+
+  it('renueva el TTL al elegir carpeta', () => {
+    const store = new PendingCaptureStore(1000);
+    store.create(1, prepared, ['Idearium'], 'idea', 0);
+    expect(store.chooseFolder(1, 'Ideas', ['idea'], 900)).toBeDefined();
+    expect(store.get(1, 1500)).toBeDefined();
+    expect(store.get(1, 1901)).toBeUndefined();
+  });
 });

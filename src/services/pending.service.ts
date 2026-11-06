@@ -55,12 +55,18 @@ export class PendingCaptureStore {
     return this.get(chatId) !== undefined;
   }
 
-  chooseFolder(chatId: number, folder: string, categories: string[]): PendingCapture | undefined {
-    const capture = this.get(chatId);
+  chooseFolder(
+    chatId: number,
+    folder: string,
+    categories: string[],
+    now = Date.now(),
+  ): PendingCapture | undefined {
+    const capture = this.get(chatId, now);
     if (!capture) return undefined;
     capture.folder = folder;
     capture.categories = categories;
     capture.stage = 'category';
+    capture.createdAt = now;
     return capture;
   }
 
