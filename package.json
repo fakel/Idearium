@@ -52,5 +52,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "sharp": "^0.35.5"
   }
 }

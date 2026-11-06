@@ -15,6 +15,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 - Las 22 notas del curso se migraron de `00`–`21` a prefijos `NNNN`: `0000`–`0021`, con títulos, aliases y wikilinks actualizados.
 - La numeración global cuenta los prefijos `NNNN` del curso: con las notas `0000`–`0021`, la siguiente captura recibe `0022` en lugar de reiniciar en `0001`.
 
+### Seguridad
+
+- Override de `sharp` a `0.35.5` para cerrar las alertas de Dependabot sobre libvips, libheif y librsvg que llegaban vía `@lancedb/lancedb` → `@huggingface/transformers`. `npm audit` queda en 0 vulnerabilidades.
+
 ## [0.1.0] - 2026-11-06
 
 ### Añadido
