@@ -267,6 +267,49 @@ describe('MemorizeService.deleteNote', () => {
     await expect(readFile(file, 'utf8')).rejects.toThrow();
   });
 
+  it('conserva y actualiza un palacio si quedan otras notas fuente', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, 'a.md'), '---\ntitle: Nota A\n---\n\n# Nota A\n', 'utf8');
+    await writeFile(path.join(dir, 'b.md'), '---\ntitle: Nota B\n---\n\n# Nota B\n', 'utf8');
+
+    const llm: TextCompleter = {
+      completeText: async () => ({ value: '### Ruta física\n1. Puerta con [[Nota A]]' }),
+    };
+    const memorize = new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm);
+    const created = await memorize.run('notas Nota A, Nota B');
+
+    const deleted = await memorize.deleteNote('Nota A');
+    expect(deleted.palaces).toHaveLength(1);
+    expect(deleted.palaces[0]).toMatchObject({
+      title: created.title,
+      deleted: false,
+      remainingNotes: ['Nota B'],
+    });
+
+    const palace = matter(await readFile(created.path, 'utf8'));
+    expect(palace.data.source_notes).toEqual(['Nota B']);
+    expect(palace.content).not.toContain('[[a|Nota A]]');
+    expect(palace.content).toContain('[[b|Nota B]]');
+  });
+
+  it('borra el palacio si se borra su única nota fuente', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, 'sola.md'), '---\ntitle: Sola\n---\n\n# Sola\n', 'utf8');
+
+    const llm: TextCompleter = { completeText: async () => ({ value: '### Ruta física\n1. Ventana' }) };
+    const memorize = new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm);
+    const created = await memorize.run('sola.md');
+
+    const deleted = await memorize.deleteNote('Sola');
+    expect(deleted.palaces[0]).toMatchObject({
+      title: created.title,
+      deleted: true,
+      remainingNotes: [],
+    });
+    await expect(readFile(created.path, 'utf8')).rejects.toThrow();
+    expect(await memorize.listPalaces()).toHaveLength(0);
+  });
+
   it('no borra palacios con /notas rm', async () => {
     const dir = await vault();
     await writeFile(

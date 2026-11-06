@@ -15,6 +15,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 - Licencia del proyecto a **Business Source License 1.1**: uso no comercial permitido; uso comercial requiere licencia separada. Todas las versiones del proyecto quedan bajo esta licencia y cada una pasa a GPL-3.0-or-later cuatro años después de su publicación.
 
+### Corregido
+
+- Al borrar una nota con `/notas rm`, se limpian sus palacios: si era la única nota fuente, el palacio se elimina; si quedan otras, se actualiza `source_notes`, se quita el enlace obsoleto y se informa cuál palacio se conservó.
+
 ## [0.1.1] - 2026-11-06
 
 ### Añadido

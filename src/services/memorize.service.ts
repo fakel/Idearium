@@ -60,11 +60,22 @@ export interface NoteContent {
   content: string;
 }
 
+export interface AffectedPalace {
+  path: string;
+  title: string;
+  /** true si el palacio se borró porque no quedaban notas fuente. */
+  deleted: boolean;
+  /** Notas fuente que siguen existiendo (solo si no se borró). */
+  remainingNotes: string[];
+}
+
 export interface NoteDeleteResult {
   path: string;
   relativePath: string;
   title: string;
   noteNumber?: number;
+  /** Palacios que apuntaban a la nota borrada. */
+  palaces: AffectedPalace[];
 }
 
 export interface PalaceDeleteResult {
@@ -154,12 +165,75 @@ export class MemorizeService {
 
     await unlink(resolved);
     await this.indexer?.removeFile(resolved).catch(() => undefined);
+    const palaces = await this.cleanupPalacesAfterNoteDelete(resolved, ref.title);
     return {
       path: resolved,
       relativePath: path.relative(root, resolved),
       title: ref.title,
       noteNumber: ref.noteNumber,
+      palaces,
     };
+  }
+
+  /**
+   * Al borrar una nota, limpia los palacios que la usaban como fuente.
+   * Si no quedan fuentes, borra el palacio; si quedan, actualiza su
+   * frontmatter y elimina el enlace a la nota borrada.
+   */
+  private async cleanupPalacesAfterNoteDelete(
+    deletedPath: string,
+    deletedTitle: string,
+  ): Promise<AffectedPalace[]> {
+    const root = path.resolve(this.config.vaultPath);
+    const relative = path
+      .relative(root, deletedPath)
+      .replace(/\.md$/i, '')
+      .split(path.sep)
+      .join('/');
+    const basename = path.basename(deletedPath, '.md');
+    const notes = await this.listNotes();
+    const files = await listMarkdownFiles(root);
+    const reports: AffectedPalace[] = [];
+
+    for (const file of files) {
+      const raw = await readFile(file, 'utf8').catch(() => null);
+      if (!raw) continue;
+      const parsed = matter(raw);
+      if (parsed.data.type !== 'palacio') continue;
+
+      const sourceTitles = asStringArray(parsed.data.source_notes);
+      if (sourceTitles.length === 0) continue;
+      if (!sourceTitles.some((title) => normalizeText(title) === normalizeText(deletedTitle))) {
+        continue;
+      }
+
+      const remainingNotes = sourceTitles.filter((title) =>
+        notes.some((note) => normalizeText(note.title) === normalizeText(title)),
+      );
+
+      const title =
+        typeof parsed.data.title === 'string' ? parsed.data.title : path.basename(file, '.md');
+
+      if (remainingNotes.length === 0) {
+        await this.removePalaceReferences(file);
+        await unlink(file);
+        await this.indexer?.removeFile(file).catch(() => undefined);
+        reports.push({ path: file, title, deleted: true, remainingNotes: [] });
+        continue;
+      }
+
+      const content = removeSourceNoteLines(parsed.content, relative, basename, deletedTitle);
+      const updated = matter.stringify(content, {
+        ...parsed.data,
+        source_notes: remainingNotes,
+        updated: new Date().toISOString(),
+      });
+      await this.writeAtomic(file, updated);
+      await this.indexer?.indexFile(file, { force: true }).catch(() => undefined);
+      reports.push({ path: file, title, deleted: false, remainingNotes });
+    }
+
+    return reports;
   }
 
   async candidates(expression: string): Promise<NoteRef[]> {
@@ -547,6 +621,43 @@ export class MemorizeService {
 
     return changed;
   }
+}
+
+function removeSourceNoteLines(
+  markdown: string,
+  relative: string,
+  basename: string,
+  title: string,
+): string {
+  const section = extractSection(markdown, 'Notas fuente');
+  if (!section) return markdown;
+  const lines = section.split('\n');
+  const kept = lines.filter(
+    (line, index) => index === 0 || !lineTargetsNote(line, relative, basename, title),
+  );
+  if (kept.length === lines.length) return markdown;
+  return replaceSection(markdown, 'Notas fuente', kept.join('\n').trimEnd());
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function lineTargetsNote(
+  line: string,
+  relative: string,
+  basename: string,
+  title: string,
+): boolean {
+  const pattern = /\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
+  for (const match of line.matchAll(pattern)) {
+    const target = match[1]!.trim().replace(/\.md$/i, '');
+    const label = match[2]?.trim();
+    if (target === relative || target === basename || target.endsWith(`/${basename}`)) return true;
+    if (label && normalizeText(label) === normalizeText(title)) return true;
+  }
+  return false;
 }
 
 function lineTargetsPalace(line: string, relative: string, basename: string): boolean {

@@ -322,7 +322,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 136 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla)
+npm test         # 138 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -382,7 +382,7 @@ Cada respuesta de OpenRouter trae su consumo real (`usage.cost` y tokens). Idear
 
 Las notas del curso usan prefijo de cuatro dígitos (`0000`–`0021`) y no tienen `note_number` en el frontmatter: `/notas 0000` las lee por el nombre del archivo. Esos prefijos **sí cuentan** para la numeración global, así que la primera captura después del curso será `0022`.
 
-`/notas rm <número|título|ruta>` borra el archivo `.md`, sus chunks del índice y la entrada de `index-state.json`. Solo resuelve coincidencias exactas: número, título o ruta; no borra por tema. Los palacios se borran con `/palacio rm`. No borra el audio ni el documento original, y los enlaces existentes a la nota pueden quedar rotos.
+`/notas rm <número|título|ruta>` borra el archivo `.md`, sus chunks del índice y la entrada de `index-state.json`. Solo resuelve coincidencias exactas: número, título o ruta; no borra por tema. Si la nota era fuente de un palacio, el bot elimina el palacio cuando ya no quedan notas fuente; si quedan otras, actualiza `source_notes`, quita el enlace a la nota borrada y te dice qué palacio se conservó. Los palacios también se pueden borrar con `/palacio rm`. No borra el audio ni el documento original.
 
 #### Nombres de nota
 

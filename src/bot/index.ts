@@ -281,10 +281,27 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         const number = deleted.noteNumber
           ? ` (#${String(deleted.noteNumber).padStart(4, '0')})`
           : '';
-        return reply(
-          ctx,
-          `🗑️ Nota eliminada: ${deleted.title}${number}\n${deleted.relativePath}\n\nSi había un palacio, sus enlaces pueden quedar obsoletos.`,
-        );
+        const lines = [
+          `🗑️ Nota eliminada: ${deleted.title}${number}`,
+          deleted.relativePath,
+        ];
+        if (deleted.palaces.length === 0) {
+          lines.push('', 'No tenía palacios relacionados.');
+        } else {
+          lines.push('', 'Palacios relacionados:');
+          for (const palace of deleted.palaces) {
+            if (palace.deleted) {
+              lines.push(`- ${palace.title}: eliminado porque no quedaban notas fuente.`);
+            } else {
+              const remaining = palace.remainingNotes.join(', ');
+              const count = palace.remainingNotes.length;
+              lines.push(
+                `- ${palace.title}: conservado; ${count === 1 ? 'queda 1 nota' : `quedan ${count} notas`}: ${remaining}.`,
+              );
+            }
+          }
+        }
+        return reply(ctx, lines.join('\n'));
       } catch (error) {
         return replyError(ctx, error);
       }
