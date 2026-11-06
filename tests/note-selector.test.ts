@@ -203,6 +203,31 @@ describe('NoteSelectorService', () => {
     expect(selection.notes.map((item) => item.title)).toEqual(['A', 'B']);
   });
 
+  it('no deja que los palacios desplacen notas normales', async () => {
+    const dir = await vault();
+    const palaceDir = path.join(dir, 'Palacios');
+    await mkdir(palaceDir, { recursive: true });
+    const palace1 = path.join(palaceDir, 'p1.md');
+    const palace2 = path.join(palaceDir, 'p2.md');
+    const real = path.join(dir, 'real.md');
+    await writeFile(palace1, note('Palacio 1').replace('category: idea', 'category: idea\ntype: palacio'), 'utf8');
+    await writeFile(palace2, note('Palacio 2').replace('category: idea', 'category: idea\ntype: palacio'), 'utf8');
+    await writeFile(real, note('Nota real'), 'utf8');
+
+    const selector = new NoteSelectorService(
+      { vaultPath: dir, maxNotes: 1 },
+      fakeVector([
+        { notePath: palace1, distance: 0.01 },
+        { notePath: palace2, distance: 0.02 },
+        { notePath: real, distance: 0.3 },
+      ]),
+      fakeEmbedder(),
+    );
+    const selection = await selector.select('tema sin título exacto');
+
+    expect(selection.notes.map((item) => item.title)).toEqual(['Nota real']);
+  });
+
   it('carga contenido con recorte por nota', async () => {
     const dir = await vault();
     const file = path.join(dir, 'larga.md');

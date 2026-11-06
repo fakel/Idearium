@@ -264,12 +264,13 @@ export class NoteSelectorService {
       }
     }
 
-    const ranked = [...grouped.entries()]
-      .sort((a, b) => a[1].bestDistance - b[1].bestDistance || b[1].chunks - a[1].chunks)
-      .slice(0, this.maxNotes);
+    const ranked = [...grouped.entries()].sort(
+      (a, b) => a[1].bestDistance - b[1].bestDistance || b[1].chunks - a[1].chunks,
+    );
 
     const notes: NoteRef[] = [];
     for (const [notePath, meta] of ranked) {
+      if (notes.length >= this.maxNotes) break;
       const ref = await this.readRef(notePath).catch(() => null);
       if (!ref || ref.type === 'palacio') continue;
       notes.push({ ...ref, title: ref.title || meta.title, tags: ref.tags.length ? ref.tags : meta.tags, category: ref.category || meta.category });
