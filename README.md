@@ -647,4 +647,4 @@ Pendiente:
 
 Puedes usar, copiar, modificar y distribuir Idearium para fines **no comerciales**. El uso comercial —incluido ofrecerlo como producto o servicio de pago— requiere una licencia comercial: `iam@fakel.lol`. Cuatro años después de la publicación de cada versión, esa versión pasa a **GPL-3.0-or-later**.
 
-Las versiones `0.0.1`–`0.1.1`, ya publicadas, siguen bajo **BSL 1.1**; la BSL 1.1 aplica desde la `0.2.0`.
+Todas las versiones de Idearium se distribuyen bajo **BSL 1.1**.
