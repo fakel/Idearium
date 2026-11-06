@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/pro
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
+import { assertInsideVault } from '../lib/vault-path.js';
 import type { Embedder } from './embedding.service.js';
 import type { TextCompleter } from './rag.service.js';
 import type { VectorStore } from './vector.service.js';
@@ -376,6 +377,7 @@ export class MemorizeService {
   }
 
   private async writeAtomic(file: string, content: string): Promise<void> {
+    await assertInsideVault(this.config.vaultPath, file);
     const tmp = `${file}.tmp-${randomUUID()}`;
     await writeFile(tmp, content, 'utf8');
     await rename(tmp, file);
@@ -421,14 +423,15 @@ export class MemorizeService {
   private async resolveExactTarget(target: string): Promise<string | null> {
     if (target.endsWith('.md')) {
       const absolute = path.isAbsolute(target) ? target : path.resolve(this.config.vaultPath, target);
-      return absolute;
+      return assertInsideVault(this.config.vaultPath, absolute);
     }
     const exact = await this.selector.resolveExplicit(target).catch(() => null);
     return exact?.path ?? null;
   }
 
   private async readPalaceFile(file: string, depth = 0): Promise<PalaceSection | null> {
-    const original = await readFile(file, 'utf8').catch(() => null);
+    const safeFile = await assertInsideVault(this.config.vaultPath, file);
+    const original = await readFile(safeFile, 'utf8').catch(() => null);
     if (!original) return null;
     const section = extractSection(original, 'Palacio de la memoria');
     if (!section) return null;
@@ -442,7 +445,7 @@ export class MemorizeService {
           ? linkPath
           : path.resolve(this.config.vaultPath, linkPath);
         const target = `${absolute}.md`;
-        if (target !== file) {
+        if (target !== safeFile) {
           const followed = await this.readPalaceFile(target, depth + 1);
           if (followed) return followed;
         }
@@ -451,9 +454,9 @@ export class MemorizeService {
 
     const parsed = matter(original);
     const title =
-      typeof parsed.data.title === 'string' ? parsed.data.title : path.basename(file, '.md');
+      typeof parsed.data.title === 'string' ? parsed.data.title : path.basename(safeFile, '.md');
     return {
-      path: file,
+      path: safeFile,
       title,
       section,
       story: compactPalaceStory(body),

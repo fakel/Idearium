@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify, truncate } from '../lib/text.js';
+import { assertInsideVault } from '../lib/vault-path.js';
 import type { Embedder } from './embedding.service.js';
 import type { VectorStore } from './vector.service.js';
 
@@ -298,14 +299,15 @@ export class NoteSelectorService {
   }
 
   private async readRef(file: string): Promise<NoteRef> {
-    const raw = await readFile(file, 'utf8');
+    const safeFile = await assertInsideVault(this.config.vaultPath, file);
+    const raw = await readFile(safeFile, 'utf8');
     const parsed = matter(raw);
-    const relativePath = path.relative(this.config.vaultPath, file);
+    const relativePath = path.relative(this.config.vaultPath, safeFile);
     const title =
       typeof parsed.data.title === 'string' && parsed.data.title.trim()
         ? parsed.data.title.trim()
-        : path.basename(file, '.md');
-    const baseName = path.basename(file, '.md');
+        : path.basename(safeFile, '.md');
+    const baseName = path.basename(safeFile, '.md');
     const fromData = Number(parsed.data.note_number);
     const fromName = /^(\d{4,})-.+-\d{6}$/.exec(baseName);
     const fromCourse = /^(\d{4,})\s/.exec(baseName);
@@ -320,7 +322,7 @@ export class NoteSelectorService {
 
     return {
       title,
-      path: file,
+      path: safeFile,
       relativePath,
       tags: Array.isArray(parsed.data.tags) ? parsed.data.tags.map(String) : [],
       category: typeof parsed.data.category === 'string' ? parsed.data.category : 'otro',
