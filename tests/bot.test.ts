@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findPalaceNumber, parsePalaceIndex } from '../src/bot/index.js';
+import { findPalaceNumber, isPrivateChat, parsePalaceIndex } from '../src/bot/index.js';
 
 describe('parsePalaceIndex', () => {
   it('acepta números positivos con o sin #', () => {
@@ -29,5 +29,16 @@ describe('findPalaceNumber', () => {
 
   it('devuelve null si no está en el listado', () => {
     expect(findPalaceNumber(palaces, '/vault/C.md')).toBeNull();
+  });
+});
+
+
+describe('isPrivateChat', () => {
+  it('solo acepta chats privados', () => {
+    expect(isPrivateChat('private')).toBe(true);
+    expect(isPrivateChat('group')).toBe(false);
+    expect(isPrivateChat('supergroup')).toBe(false);
+    expect(isPrivateChat('channel')).toBe(false);
+    expect(isPrivateChat(undefined)).toBe(false);
   });
 });

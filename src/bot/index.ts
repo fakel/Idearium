@@ -54,6 +54,10 @@ const helpText = [
   '/start — esta ayuda y estado del sistema',
 ].join('\n');
 
+export function isPrivateChat(type: string | undefined): boolean {
+  return type === 'private';
+}
+
 export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   const bot = new Bot(runtime.env.TELEGRAM_BOT_TOKEN);
   const pending = new PendingCaptureStore();
@@ -71,6 +75,13 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!userId || !allowed.has(userId)) {
       if (userId) await ctx.reply('No estás autorizado para usar este bot.');
       log.warn({ userId }, 'bot.unauthorized');
+      return;
+    }
+    if (!isPrivateChat(ctx.chat?.type)) {
+      await ctx
+        .reply('Por privacidad, este bot solo funciona en un chat privado.')
+        .catch(() => undefined);
+      log.warn({ chatId: ctx.chat?.id, type: ctx.chat?.type }, 'bot.unsupported_chat');
       return;
     }
     if (ctx.message?.text?.startsWith('/')) menuFlow.clear(ctx.chat?.id ?? 0);
