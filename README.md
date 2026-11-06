@@ -351,7 +351,7 @@ El bot responde con título, ruta, tags y proveedor usado. Si el audio, la foto 
 
 `/notas` muestra todas las notas con su número (`0001 — Título`); `/notas texto` filtra por título o ruta. Las notas antiguas sin número aparecen por su título. `/notas 7` (o `/notas #0007`) muestra el contenido completo de esa nota, sin frontmatter.
 
-Las notas del curso usan un prefijo de dos dígitos (`00`–`21`) y no tienen `note_number`: `/notas 00` las lee por ese prefijo. La resolución distingue `00` (nota de curso) de `0001` o `#0001` (captura numerada).
+Las notas del curso usan un prefijo de dos dígitos (`00`–`21`) y no tienen `note_number`: `/notas 00` las lee por ese prefijo. La resolución distingue `00` (nota de curso) de `0001` o `#0001` (captura numerada). Esos prefijos **sí cuentan** para la numeración global: con el curso hasta `21`, la siguiente captura será `0022`.
 
 `/notas rm <número|título|ruta>` borra el archivo `.md`, sus chunks del índice y la entrada de `index-state.json`. Solo resuelve coincidencias exactas: número, título o ruta; no borra por tema. Los palacios se borran con `/palacio rm`. No borra el audio ni el documento original, y los enlaces existentes a la nota pueden quedar rotos.
 
@@ -365,7 +365,7 @@ NNNN-titulo-DDMMAA.md
 
 Ejemplo: `0007-comprar-filtros-de-cafe-061126.md`.
 
-- `NNNN`: número global del vault, con relleno a 4 dígitos. Se calcula como el mayor número existente + 1, mirando todas las carpetas.
+- `NNNN`: número global del vault, con relleno a 4 dígitos. Se calcula como el mayor número existente + 1, mirando todas las carpetas y también los prefijos de dos dígitos de las notas del curso (`00`–`21`).
 - `titulo`: slug del título (sin acentos, minúsculas, guiones).
 - `DDMMAA`: fecha local de creación.
 

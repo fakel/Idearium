@@ -62,6 +62,21 @@ describe('ObsidianService', () => {
     expect(await readFile(first.path, 'utf8')).toContain('uno');
   });
 
+  it('cuenta los prefijos de dos dígitos de las notas del curso', async () => {
+    await writeFile(path.join(vault, '00 Indice.md'), '# índice\n', 'utf8');
+    await writeFile(path.join(vault, '21 Glosario.md'), '# glosario\n', 'utf8');
+
+    const note = await service.write({
+      digest,
+      source: 'cli_text',
+      transcript: 'nueva',
+      now: new Date(2026, 10, 6, 12, 0, 0),
+    });
+
+    expect(note.noteNumber).toBe(22);
+    expect(path.basename(note.path)).toBe('0022-repensar-el-indice-061126.md');
+  });
+
   it('ignora las fechas antiguas al calcular el número', async () => {
     await writeFile(path.join(vault, '2026-01-02-nota-vieja.md'), '# vieja\n', 'utf8');
     const note = await service.write({ digest, source: 'cli_text', transcript: 'nueva' });

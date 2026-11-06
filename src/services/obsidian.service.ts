@@ -190,9 +190,17 @@ export class ObsidianService {
   private async nextNoteNumber(): Promise<number> {
     let max = 0;
     for (const file of await this.listMarkdownFiles()) {
-      // Solo nombres nuevos: NNNN-slug-DDMMAA.md (la fecha vieja YYYY-MM-DD no cuenta).
-      const match = /^(\d{4,})-.+-(\d{6})\.md$/.exec(path.basename(file));
-      if (match) max = Math.max(max, Number(match[1]));
+      const name = path.basename(file);
+      // Notas nuevas: NNNN-slug-DDMMAA.md (la fecha vieja YYYY-MM-DD no cuenta).
+      const match = /^(\d{4,})-.+-(\d{6})\.md$/.exec(name);
+      if (match) {
+        max = Math.max(max, Number(match[1]));
+        continue;
+      }
+      // Notas del curso con prefijo de dos dígitos: "00 Indice.md", "21 Glosario.md".
+      // También cuentan para que una captura nueva no reutilice números ya usados.
+      const course = /^(\d{2})[\s_-]/.exec(name);
+      if (course) max = Math.max(max, Number(course[1]));
     }
     return max + 1;
   }
