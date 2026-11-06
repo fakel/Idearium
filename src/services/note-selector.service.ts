@@ -22,6 +22,7 @@ export interface NoteRef {
   tags: string[];
   category: string;
   type?: string;
+  noteNumber?: number;
 }
 
 export interface NoteContext extends NoteRef {
@@ -157,6 +158,12 @@ export class NoteSelectorService {
       return { mode: 'explicit', notes: [exact], unresolved: [], query: parsed.query };
     }
 
+    // Un número que no existe no es un tema: evita que el quiz empiece con
+    // notas arbitrarias por una búsqueda semántica de "7".
+    if (/^#?\d{1,9}$/.test(parsed.query)) {
+      return { mode: 'explicit', notes: [], unresolved: [parsed.query], query: parsed.query };
+    }
+
     return this.selectByTopic(parsed.query);
   }
 
@@ -191,6 +198,13 @@ export class NoteSelectorService {
   async resolveExplicit(target: string): Promise<NoteRef | null> {
     const trimmed = target.trim();
     if (!trimmed) return null;
+
+    const numeric = /^#?(\d{1,9})$/.exec(trimmed);
+    if (numeric) {
+      const wanted = Number(numeric[1]);
+      const notes = await this.listNotes();
+      return notes.find((note) => note.noteNumber === wanted) ?? null;
+    }
 
     if (trimmed.endsWith('.md')) {
       const absolute = path.isAbsolute(trimmed) ? trimmed : path.resolve(this.config.vaultPath, trimmed);
@@ -284,6 +298,15 @@ export class NoteSelectorService {
       typeof parsed.data.title === 'string' && parsed.data.title.trim()
         ? parsed.data.title.trim()
         : path.basename(file, '.md');
+    const fromData = Number(parsed.data.note_number);
+    const fromName = /^(\d{4,})-.+-\d{6}$/.exec(path.basename(file, '.md'));
+    const noteNumber =
+      Number.isSafeInteger(fromData) && fromData > 0
+        ? fromData
+        : fromName
+          ? Number(fromName[1])
+          : undefined;
+
     return {
       title,
       path: file,
@@ -291,6 +314,7 @@ export class NoteSelectorService {
       tags: Array.isArray(parsed.data.tags) ? parsed.data.tags.map(String) : [],
       category: typeof parsed.data.category === 'string' ? parsed.data.category : 'otro',
       type: typeof parsed.data.type === 'string' ? parsed.data.type : undefined,
+      noteNumber,
     };
   }
 }

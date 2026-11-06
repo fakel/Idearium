@@ -1,4 +1,4 @@
-import type { RemoteProviderName } from '../../config/env.js';
+import type { ReasoningEffort, RemoteProviderName } from '../../config/env.js';
 import { ProviderError, type ChatProvider, type ChatRequest } from '../llm.service.js';
 
 export interface OpenAICompatibleProviderOptions {
@@ -7,6 +7,7 @@ export interface OpenAICompatibleProviderOptions {
   /** Base URL without the trailing `/chat/completions`. */
   baseUrl: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
   timeoutMs?: number;
 }
 
@@ -57,6 +58,9 @@ export class OpenAICompatibleProvider implements ChatProvider {
           model: this.model,
           messages: request.messages,
           temperature: request.temperature ?? 0.2,
+          ...(this.options.reasoningEffort
+            ? { reasoning: { effort: this.options.reasoningEffort } }
+            : {}),
           ...(json ? { response_format: { type: 'json_object' } } : {}),
         }),
         signal: AbortSignal.timeout(timeoutMs),

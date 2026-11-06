@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
@@ -10,7 +10,9 @@ import type { Indexer } from './indexer.service.js';
 import {
   NoteSelectorService,
   cleanSelectionExpression,
+  parseSelectionExpression,
   type NoteContext,
+  type NoteRef,
   type NoteSelection,
 } from './note-selector.service.js';
 
@@ -34,7 +36,10 @@ export interface MemorizeResult {
 export interface PalaceSection {
   path: string;
   title: string;
+  /** Sección completa, por compatibilidad. */
   section: string;
+  /** Solo la historia, sin encabezados ni contenido de la nota. */
+  story: string;
   combined: boolean;
 }
 
@@ -43,6 +48,30 @@ export interface PalaceSummary {
   relativePath: string;
   title: string;
   combined: boolean;
+}
+
+export interface NoteContent {
+  path: string;
+  relativePath: string;
+  title: string;
+  noteNumber?: number;
+  content: string;
+}
+
+export interface NoteDeleteResult {
+  path: string;
+  relativePath: string;
+  title: string;
+  noteNumber?: number;
+}
+
+export interface PalaceDeleteResult {
+  path: string;
+  title: string;
+  /** Notas a las que se les quitó el enlace. */
+  references: number;
+  /** false si el palacio era una sección dentro de una nota antigua. */
+  deletedFile: boolean;
 }
 
 export class MemorizeService {
@@ -67,13 +96,96 @@ export class MemorizeService {
     this.palacesDir = config.palacesDir ?? path.join(config.vaultPath, 'Palacios');
   }
 
+  /**
+   * Resuelve la expresión a las notas que podrían recibir un palacio.
+   * El bot solo permite elegir una; si hay varias, las muestra para que el
+   * usuario decida en vez de generar un palacio combinado poco preciso.
+   */
+  /** Notas normales del vault, sin palacios (esos se listan con /palacio). */
+  async listNotes(): Promise<NoteRef[]> {
+    const notes = await this.selector.listNotes();
+    return notes.filter((note) => note.type !== 'palacio');
+  }
+
+  /** Devuelve el cuerpo Markdown de una nota, sin frontmatter. */
+  async readNote(target: string): Promise<NoteContent> {
+    const ref = await this.selector.resolveExplicit(target);
+    if (!ref) {
+      throw new Error(
+        `No encontré la nota "${target}". Usa su número, el título exacto o la ruta .md.`,
+      );
+    }
+
+    const root = path.resolve(this.config.vaultPath);
+    const resolved = path.resolve(ref.path);
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+      throw new Error('La nota está fuera del vault.');
+    }
+
+    const parsed = matter(await readFile(resolved, 'utf8'));
+    return {
+      path: resolved,
+      relativePath: path.relative(root, resolved),
+      title: ref.title,
+      noteNumber: ref.noteNumber,
+      content: parsed.content.trim(),
+    };
+  }
+
+  /** Borra una nota normal por número, título exacto o ruta. No borra palacios. */
+  async deleteNote(target: string): Promise<NoteDeleteResult> {
+    const ref = await this.selector.resolveExplicit(target);
+    if (!ref) {
+      throw new Error(
+        `No encontré la nota "${target}". Usa su número, el título exacto o la ruta .md.`,
+      );
+    }
+    if (ref.type === 'palacio') {
+      throw new Error('Eso es un palacio. Bórralo con /palacio rm <número|nota|tema>.');
+    }
+
+    const root = path.resolve(this.config.vaultPath);
+    const resolved = path.resolve(ref.path);
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+      throw new Error('La nota está fuera del vault.');
+    }
+
+    await unlink(resolved);
+    await this.indexer?.removeFile(resolved).catch(() => undefined);
+    return {
+      path: resolved,
+      relativePath: path.relative(root, resolved),
+      title: ref.title,
+      noteNumber: ref.noteNumber,
+    };
+  }
+
+  async candidates(expression: string): Promise<NoteRef[]> {
+    const trimmed = expression.trim();
+    if (!trimmed) throw new Error('Indica una nota o un tema.');
+    const parsed = parseSelectionExpression(trimmed);
+    if (parsed.parts.length > 1) {
+      throw new Error(
+        'Solo puedo crear un palacio de una nota a la vez. Escribe una sola nota o elige una de la lista.',
+      );
+    }
+
+    const selection = await this.selector.select(trimmed);
+    if (selection.unresolved.length > 0) {
+      throw new Error(
+        `No encontré estas notas: ${selection.unresolved.join(', ')}. Usa el título exacto, el número de nota o la ruta .md.`,
+      );
+    }
+    return selection.notes.filter((note) => note.type !== 'palacio');
+  }
+
   async run(expression: string): Promise<MemorizeResult> {
     const trimmed = expression.trim();
     if (!trimmed) throw new Error('Indica una nota o un tema.');
 
     const selection = await this.selector.select(trimmed);
     if (selection.mode === 'explicit' && selection.unresolved.length > 0) {
-      throw new Error(`No encontré estas notas: ${selection.unresolved.join(', ')}. Usa el título exacto o la ruta .md.`);
+      throw new Error(`No encontré estas notas: ${selection.unresolved.join(', ')}. Usa el título exacto, el número de nota o la ruta .md.`);
     }
 
     const contexts = await this.selector.load(selection.notes);
@@ -92,22 +204,17 @@ export class MemorizeService {
   }
 
   private async runSingle(note: NoteContext): Promise<MemorizeResult> {
-    const original = await readFile(note.path, 'utf8');
     const completion = await this.llm.completeText({
       messages: [
         {
           role: 'system',
           content: [
             'Eres un experto en mnemotecnia y el método de loci (palacio de la memoria).',
-            'Diseña un recorrido físico concreto y vívido para memorizar el contenido de la nota.',
-            'Devuelve SOLO Markdown, en español, con esta estructura:',
-            '### Ruta física',
-            'Lista numerada de 5 a 10 lugares concretos con lo que se visualiza en cada uno.',
-            '### Imágenes',
-            'Asociaciones absurdas y memorables para cada idea clave.',
-            '### Repaso',
-            '3 preguntas de autoevaluación con su respuesta.',
-            'No repitas la nota completa ni inventes datos que no estén en ella.',
+            'Crea un palacio mínimo, directo y fácil de recorrer para esta nota.',
+            'Devuelve SOLO la historia, en español, sin títulos, secciones ni listas de imágenes.',
+            'Formato: 4 a 6 escenas numeradas. Cada escena debe tener un lugar concreto, la idea esencial que se guarda allí y una imagen absurda que la fije; máximo 2 frases por escena.',
+            'No repitas ni resumas la nota completa: destila solo lo que hay que recordar.',
+            'No inventes datos que no estén en la nota.',
           ].join('\n'),
         },
         {
@@ -116,20 +223,20 @@ export class MemorizeService {
         },
       ],
       inputChars: note.content.length,
-      temperature: 0.6,
+      temperature: 0.4,
     });
 
-    const section = `## Palacio de la memoria\n\n${completion.value.trim()}\n`;
-    const updatedContent = replaceSection(original, 'Palacio de la memoria', section);
-    const tmp = `${note.path}.tmp-${randomUUID()}`;
-    await writeFile(tmp, updatedContent, 'utf8');
-    await rename(tmp, note.path);
-    await this.indexer?.indexFile(note.path, { force: true }).catch(() => undefined);
+    const story = compactPalaceStory(completion.value);
+    if (!story) throw new Error('El modelo no devolvió una historia para el palacio. Inténtalo de nuevo.');
+
+    const title = `Palacio — ${note.title}`;
+    const target = await this.writePalaceNote(title, story, [note], note.truncated, new Date());
+    await this.addPalaceLink(note.path, target, title);
 
     return {
-      path: note.path,
-      title: note.title,
-      created: !original.includes('## Palacio de la memoria'),
+      path: target,
+      title,
+      created: true,
       combined: false,
       noteCount: 1,
       notes: [note.title],
@@ -141,9 +248,6 @@ export class MemorizeService {
     const title = `Palacio — ${label}`;
     const now = new Date();
     const truncated = contexts.some((context) => context.truncated);
-    const sources = contexts
-      .map((context) => `- [[${context.title}]] (${context.relativePath})`)
-      .join('\n');
 
     const completion = await this.llm.completeText({
       messages: [
@@ -151,16 +255,12 @@ export class MemorizeService {
           role: 'system',
           content: [
             'Eres un experto en mnemotecnia y el método de loci (palacio de la memoria).',
-            'Debes diseñar UN solo recorrido físico coherente que integre varias notas relacionadas.',
-            'Devuelve SOLO Markdown, en español, con esta estructura:',
-            '### Ruta física',
-            'Lista numerada de 7 a 12 lugares concretos; en cada uno indica qué idea de qué nota se visualiza y cita [[Título]].',
-            '### Imágenes',
-            'Asociaciones absurdas y memorables para conectar las ideas entre notas.',
-            '### Repaso',
-            '3 a 5 preguntas de autoevaluación con su respuesta.',
-            'No inventes datos que no estén en las notas. Si falta información, dilo.',
-            'Integra las notas en un recorrido único; no hagas un palacio separado por nota.',
+            'Crea UN único recorrido mínimo para recordar varias notas relacionadas.',
+            'Devuelve SOLO la historia, en español, sin títulos, secciones ni listas de imágenes.',
+            'Formato: 5 a 7 escenas numeradas. Cada escena debe tener un lugar concreto, la idea esencial y una imagen absurda que la fije; máximo 2 frases por escena.',
+            'Puedes citar [[Título]] al final de una escena, pero no repitas el contenido de las notas ni copies párrafos.',
+            'Integra las ideas en un solo recorrido; no hagas un palacio separado por nota.',
+            'No inventes datos que no estén en las notas. Si falta información, dilo en una sola frase.',
           ].join('\n'),
         },
         {
@@ -180,12 +280,39 @@ export class MemorizeService {
         },
       ],
       inputChars: contexts.reduce((total, context) => total + context.content.length, 0),
-      temperature: 0.6,
+      temperature: 0.4,
     });
 
+    const story = compactPalaceStory(completion.value);
+    if (!story) throw new Error('El modelo no devolvió una historia para el palacio. Inténtalo de nuevo.');
+
+    const target = await this.writePalaceNote(title, story, contexts, truncated, now);
+    await Promise.all(contexts.map((context) => this.addPalaceLink(context.path, target, title)));
+
+    return {
+      path: target,
+      title,
+      created: true,
+      combined: true,
+      noteCount: contexts.length,
+      notes: contexts.map((context) => context.title),
+    };
+  }
+
+  private async writePalaceNote(
+    title: string,
+    story: string,
+    contexts: NoteContext[],
+    truncated: boolean,
+    now: Date,
+  ): Promise<string> {
     await mkdir(this.palacesDir, { recursive: true });
     const day = now.toISOString().slice(0, 10);
+    const label = title.replace(/^Palacio — /, '');
     const target = await uniquePath(this.palacesDir, `${day}-palacio-${slugify(label)}`);
+    const sources = contexts
+      .map((context) => `- ${this.wikilink(context.path, context.title)} (${context.relativePath})`)
+      .join('\n');
     const frontmatter = {
       id: randomUUID(),
       title,
@@ -208,23 +335,50 @@ export class MemorizeService {
         : []),
       '## Palacio de la memoria',
       '',
-      completion.value.trim(),
+      story,
       '',
     ].join('\n');
 
-    const tmp = `${target}.tmp-${randomUUID()}`;
-    await writeFile(tmp, matter.stringify(body, frontmatter), 'utf8');
-    await rename(tmp, target);
+    await this.writeAtomic(target, matter.stringify(body, frontmatter));
     await this.indexer?.indexFile(target, { force: true }).catch(() => undefined);
+    return target;
+  }
 
-    return {
-      path: target,
-      title,
-      created: true,
-      combined: true,
-      noteCount: contexts.length,
-      notes: contexts.map((context) => context.title),
-    };
+  /** En la nota original solo queda un enlace al palacio, nunca el texto completo. */
+  private async addPalaceLink(notePath: string, palacePath: string, title: string): Promise<void> {
+    const raw = await readFile(notePath, 'utf8').catch(() => null);
+    if (!raw) return;
+
+    const link = this.wikilink(palacePath, title);
+    const existing = extractSection(raw, 'Palacio de la memoria');
+    const body = existing ? existing.split('\n').slice(1).join('\n').trim() : '';
+    const links = isLinkOnly(body)
+      ? body.split('\n').map((line) => line.trim()).filter(Boolean)
+      : [];
+    if (links.some((line) => line.includes(link))) return;
+
+    links.push(link);
+    const section = `## Palacio de la memoria\n\n${links.join('\n')}\n`;
+    const updated = replaceSection(raw, 'Palacio de la memoria', section);
+    if (updated === raw) return;
+
+    await this.writeAtomic(notePath, updated);
+    await this.indexer?.indexFile(notePath, { force: true }).catch(() => undefined);
+  }
+
+  private wikilink(file: string, label: string): string {
+    const relative = path
+      .relative(this.config.vaultPath, file)
+      .replace(/\.md$/i, '')
+      .split(path.sep)
+      .join('/');
+    return `[[${relative}|${label.replace(/[|\]]/g, '')}]]`;
+  }
+
+  private async writeAtomic(file: string, content: string): Promise<void> {
+    const tmp = `${file}.tmp-${randomUUID()}`;
+    await writeFile(tmp, content, 'utf8');
+    await rename(tmp, file);
   }
 
   async readPalace(target: string): Promise<PalaceSection | null> {
@@ -273,11 +427,28 @@ export class MemorizeService {
     return exact?.path ?? null;
   }
 
-  private async readPalaceFile(file: string): Promise<PalaceSection | null> {
+  private async readPalaceFile(file: string, depth = 0): Promise<PalaceSection | null> {
     const original = await readFile(file, 'utf8').catch(() => null);
     if (!original) return null;
     const section = extractSection(original, 'Palacio de la memoria');
     if (!section) return null;
+
+    const body = section.split('\n').slice(1).join('\n').trim();
+    if (isLinkOnly(body) && depth < 2) {
+      const linked = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/.exec(body)?.[1];
+      if (linked) {
+        const linkPath = linked.replace(/\.md$/i, '').trim();
+        const absolute = path.isAbsolute(linkPath)
+          ? linkPath
+          : path.resolve(this.config.vaultPath, linkPath);
+        const target = `${absolute}.md`;
+        if (target !== file) {
+          const followed = await this.readPalaceFile(target, depth + 1);
+          if (followed) return followed;
+        }
+      }
+    }
+
     const parsed = matter(original);
     const title =
       typeof parsed.data.title === 'string' ? parsed.data.title : path.basename(file, '.md');
@@ -285,6 +456,7 @@ export class MemorizeService {
       path: file,
       title,
       section,
+      story: compactPalaceStory(body),
       combined: parsed.data.type === 'palacio',
     };
   }
@@ -296,8 +468,11 @@ export class MemorizeService {
     for (const file of files) {
       try {
         const raw = await readFile(file, 'utf8');
-        if (!extractSection(raw, 'Palacio de la memoria')) continue;
+        const section = extractSection(raw, 'Palacio de la memoria');
+        if (!section) continue;
         const parsed = matter(raw);
+        const body = section.split('\n').slice(1).join('\n').trim();
+        if (parsed.data.type !== 'palacio' && isLinkOnly(body)) continue;
         const title =
           typeof parsed.data.title === 'string' ? parsed.data.title : path.basename(file, '.md');
         palaces.push({
@@ -313,6 +488,84 @@ export class MemorizeService {
 
     return palaces.sort((a, b) => a.title.localeCompare(b.title, 'es'));
   }
+
+  async deletePalace(target: string): Promise<PalaceDeleteResult> {
+    const palace = await this.readPalace(target);
+    if (!palace) throw new Error(`No encontré el palacio "${target}".`);
+
+    const inPalaces = path
+      .resolve(palace.path)
+      .startsWith(`${path.resolve(this.palacesDir)}${path.sep}`);
+    if (!inPalaces) {
+      const raw = await readFile(palace.path, 'utf8');
+      const section = extractSection(raw, 'Palacio de la memoria');
+      if (!section) throw new Error(`No encontré el palacio "${target}".`);
+      await this.writeAtomic(palace.path, removeSection(raw, 'Palacio de la memoria'));
+      await this.indexer?.indexFile(palace.path, { force: true }).catch(() => undefined);
+      return { path: palace.path, title: palace.title, references: 0, deletedFile: false };
+    }
+
+    const references = await this.removePalaceReferences(palace.path);
+    await unlink(palace.path);
+    await this.indexer?.removeFile(palace.path).catch(() => undefined);
+    return { path: palace.path, title: palace.title, references, deletedFile: true };
+  }
+
+  private async removePalaceReferences(palacePath: string): Promise<number> {
+    const relative = path
+      .relative(this.config.vaultPath, palacePath)
+      .replace(/\.md$/i, '')
+      .split(path.sep)
+      .join('/');
+    const basename = path.basename(palacePath, '.md');
+    const files = await listMarkdownFiles(this.config.vaultPath);
+    let changed = 0;
+
+    for (const file of files) {
+      if (path.resolve(file) === path.resolve(palacePath)) continue;
+      const raw = await readFile(file, 'utf8').catch(() => null);
+      if (!raw) continue;
+      const section = extractSection(raw, 'Palacio de la memoria');
+      if (!section) continue;
+
+      const lines = section.split('\n').slice(1);
+      const kept = lines.filter((line) => !lineTargetsPalace(line, relative, basename));
+      if (kept.length === lines.length) continue;
+
+      const body = kept.join('\n').trim();
+      const updated = body
+        ? replaceSection(raw, 'Palacio de la memoria', `## Palacio de la memoria\n\n${body}\n`)
+        : removeSection(raw, 'Palacio de la memoria');
+      await this.writeAtomic(file, updated);
+      await this.indexer?.indexFile(file, { force: true }).catch(() => undefined);
+      changed += 1;
+    }
+
+    return changed;
+  }
+}
+
+function lineTargetsPalace(line: string, relative: string, basename: string): boolean {
+  const pattern = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
+  for (const match of line.matchAll(pattern)) {
+    const target = match[1]!.trim().replace(/\.md$/i, '');
+    if (target === relative || target === basename || target.endsWith(`/${basename}`)) return true;
+  }
+  return false;
+}
+
+function removeSection(markdown: string, heading: string): string {
+  const section = extractSection(markdown, heading);
+  if (!section) return markdown;
+  return `${markdown.replace(section, '').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
+}
+
+function isLinkOnly(text: string): boolean {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length > 0 && lines.every((line) => /^(?:[-*]\s*)?\[\[[^\]]+\]\]$/.test(line));
 }
 
 function selectionLabel(selection: NoteSelection): string {
@@ -320,6 +573,28 @@ function selectionLabel(selection: NoteSelection): string {
   const titles = selection.notes.map((note) => note.title);
   if (titles.length <= 3) return titles.join(', ');
   return `${titles.slice(0, 3).join(', ')} y ${titles.length - 3} más`;
+}
+
+/** Recorta el palacio a una historia breve: sin encabezados ni volcado de la nota. */
+export function compactPalaceStory(value: string, maxChars = 1800): string {
+  const text = value
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((line) => !/^\s*#{1,6}\s+/.test(line) && !/^\s*```/.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (text.length <= maxChars) return text;
+
+  const cut = text.slice(0, maxChars);
+  const lastBreak = Math.max(
+    cut.lastIndexOf('\n'),
+    cut.lastIndexOf('. '),
+    cut.lastIndexOf('; '),
+  );
+  const end = lastBreak >= Math.floor(maxChars * 0.6) ? lastBreak + 1 : maxChars;
+  return `${cut.slice(0, end).trimEnd()}…`;
 }
 
 function normalizeText(value: string): string {

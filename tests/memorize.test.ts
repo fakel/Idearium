@@ -3,7 +3,7 @@ import matter from 'gray-matter';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MemorizeService, extractSection } from '../src/services/memorize.service.js';
+import { MemorizeService, compactPalaceStory, extractSection } from '../src/services/memorize.service.js';
 import type { Embedder } from '../src/services/embedding.service.js';
 import type { TextCompleter } from '../src/services/rag.service.js';
 import type { VectorStore } from '../src/services/vector.service.js';
@@ -39,6 +39,15 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+describe('compactPalaceStory', () => {
+  it('quita encabezados y limita la historia', () => {
+    const compact = compactPalaceStory('### Ruta física\n1. Puerta con café\n2. Ventana con sol', 40);
+    expect(compact).not.toContain('###');
+    expect(compact).toContain('1. Puerta');
+    expect(compact.length).toBeLessThanOrEqual(41);
+  });
+});
+
 describe('extractSection', () => {
   it('devuelve solo la sección pedida', () => {
     const markdown = '# Nota\n\n## Otra\ncontenido\n\n## Palacio de la memoria\n\n### Ruta física\n1. Puerta\n\n## Final\nnada';
@@ -69,6 +78,8 @@ describe('MemorizeService.readPalace / listPalaces', () => {
     const found = await service(dir).readPalace('con-palacio.md');
     expect(found?.title).toBe('Nota con palacio');
     expect(found?.section).toContain('1. Cocina');
+    expect(found?.story).toContain('1. Cocina');
+    expect(found?.story).not.toContain('## Palacio');
     expect(found?.section).not.toContain('## Otra');
 
     await expect(service(dir).readPalace('sin-palacio.md')).resolves.toBeNull();
@@ -103,8 +114,13 @@ describe('MemorizeService.run multi-nota', () => {
     expect(parsed.data.type).toBe('palacio');
     expect(parsed.data.source_notes).toEqual(['Nota A', 'Nota B']);
     expect(parsed.content).toContain('## Notas fuente');
-    expect(parsed.content).toContain('- [[Nota A]] (a.md)');
+    expect(parsed.content).toContain('- [[a|Nota A]] (a.md)');
     expect(parsed.content).toContain('## Palacio de la memoria');
+
+    const sourceA = await readFile(path.join(dir, 'a.md'), 'utf8');
+    expect(sourceA).toContain('## Palacio de la memoria');
+    expect(sourceA).toContain('[[Palacios/');
+    expect(sourceA).not.toContain('1. Puerta');
 
     const palaces = await memorize.listPalaces();
     expect(palaces.find((item) => item.path === result.path)?.combined).toBe(true);
@@ -127,22 +143,170 @@ describe('MemorizeService.run multi-nota', () => {
     expect(second.path).toContain('-2.md');
   });
 
-  it('mantiene el palacio dentro de la nota cuando hay una sola', async () => {
+  it('crea el palacio en Palacios/ y deja solo el enlace en la nota original', async () => {
     const dir = await vault();
     const file = path.join(dir, 'sola.md');
     await writeFile(file, '---\ntitle: Sola\n---\n\n# Sola\n\nContenido.\n', 'utf8');
 
     const llm: TextCompleter = { completeText: async () => ({ value: '### Ruta física\n1. Ventana' }) };
-    const result = await new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm).run('sola.md');
+    const memorize = new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm);
+    const result = await memorize.run('sola.md');
 
     expect(result.combined).toBe(false);
-    expect(result.path).toBe(file);
-    expect(await readFile(file, 'utf8')).toContain('## Palacio de la memoria');
-    expect((await memorizeFiles(dir)).some((name) => name.startsWith('Palacios'))).toBe(false);
+    expect(result.path).toContain(path.join(dir, 'Palacios'));
+    expect(result.path).not.toBe(file);
+
+    const original = await readFile(file, 'utf8');
+    expect(original).toContain('## Palacio de la memoria');
+    expect(original).toContain('[[Palacios/');
+    expect(original).not.toContain('1. Ventana');
+
+    const palace = await readFile(result.path, 'utf8');
+    expect(palace).toContain('1. Ventana');
+    expect(matter(palace).data.type).toBe('palacio');
+    expect(matter(palace).data.source_notes).toEqual(['Sola']);
+
+    const palaces = await memorize.listPalaces();
+    expect(palaces).toHaveLength(1);
+    expect(palaces[0]?.path).toBe(result.path);
+
+    const found = await memorize.readPalace('sola.md');
+    expect(found?.path).toBe(result.path);
+    expect(found?.story).toContain('1. Ventana');
+  });
+
+  it('borra el archivo del palacio y el enlace de la nota original', async () => {
+    const dir = await vault();
+    const file = path.join(dir, 'sola.md');
+    await writeFile(file, '---\ntitle: Sola\n---\n\n# Sola\n\nContenido.\n', 'utf8');
+
+    const llm: TextCompleter = { completeText: async () => ({ value: '1. Ventana' }) };
+    const memorize = new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm);
+    const created = await memorize.run('sola.md');
+
+    const deleted = await memorize.deletePalace('sola.md');
+    expect(deleted).toMatchObject({ path: created.path, title: created.title, deletedFile: true });
+    await expect(readFile(created.path, 'utf8')).rejects.toThrow();
+    expect(await readFile(file, 'utf8')).not.toContain('Palacio de la memoria');
+    expect(await memorize.listPalaces()).toHaveLength(0);
+  });
+
+  it('borra un palacio combinado y los enlaces de todas las notas fuente', async () => {
+    const dir = await vault();
+    const a = path.join(dir, 'a.md');
+    const b = path.join(dir, 'b.md');
+    await writeFile(a, '---\ntitle: Nota A\n---\n\n# Nota A\n', 'utf8');
+    await writeFile(b, '---\ntitle: Nota B\n---\n\n# Nota B\n', 'utf8');
+
+    const llm: TextCompleter = { completeText: async () => ({ value: '1. Puerta' }) };
+    const memorize = new MemorizeService({ vaultPath: dir }, emptyVector, emptyEmbedder, llm);
+    const created = await memorize.run('notas Nota A, Nota B');
+    expect(await readFile(a, 'utf8')).toContain('[[Palacios/');
+
+    const deleted = await memorize.deletePalace(created.path);
+    expect(deleted.deletedFile).toBe(true);
+    expect(deleted.references).toBe(2);
+    expect(await readFile(a, 'utf8')).not.toContain('Palacio de la memoria');
+    expect(await readFile(b, 'utf8')).not.toContain('Palacio de la memoria');
+    await expect(readFile(created.path, 'utf8')).rejects.toThrow();
+  });
+
+  it('en un palacio antiguo dentro de una nota borra la sección, no la nota', async () => {
+    const dir = await vault();
+    const file = path.join(dir, 'antigua.md');
+    await writeFile(
+      file,
+      '---\ntitle: Antigua\n---\n\n# Antigua\n\nTexto.\n\n## Palacio de la memoria\n\n1. Puerta\n',
+      'utf8',
+    );
+
+    const deleted = await new MemorizeService(
+      { vaultPath: dir },
+      emptyVector,
+      emptyEmbedder,
+      {} as TextCompleter,
+    ).deletePalace('antigua.md');
+
+    expect(deleted.deletedFile).toBe(false);
+    const raw = await readFile(file, 'utf8');
+    expect(raw).toContain('Texto.');
+    expect(raw).not.toContain('## Palacio de la memoria');
+  });
+
+  it('candidates resuelve una nota exacta', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, 'sola.md'), '---\ntitle: Sola\n---\n\n# Sola\n', 'utf8');
+
+    const candidates = await service(dir).candidates('sola.md');
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.title).toBe('Sola');
+  });
+
+  it('candidates rechaza listas de varias notas', async () => {
+    const dir = await vault();
+    await expect(service(dir).candidates('Nota A, Nota B')).rejects.toThrow('una nota');
   });
 });
 
-async function memorizeFiles(dir: string): Promise<string[]> {
-  const { readdir } = await import('node:fs/promises');
-  return readdir(dir);
-}
+describe('MemorizeService.deleteNote', () => {
+  it('borra una nota por número', async () => {
+    const dir = await vault();
+    const file = path.join(dir, '0007-comprar-cafe-051125.md');
+    await writeFile(
+      file,
+      '---\ntitle: Comprar café\nnote_number: 7\n---\n\n# Comprar café\n',
+      'utf8',
+    );
+
+    const deleted = await service(dir).deleteNote('7');
+    expect(deleted).toMatchObject({
+      title: 'Comprar café',
+      noteNumber: 7,
+      relativePath: '0007-comprar-cafe-051125.md',
+    });
+    await expect(readFile(file, 'utf8')).rejects.toThrow();
+  });
+
+  it('no borra palacios con /notas rm', async () => {
+    const dir = await vault();
+    await writeFile(
+      path.join(dir, 'palacio.md'),
+      '---\ntitle: Palacio\nnote_number: 3\ntype: palacio\n---\n\n# Palacio\n',
+      'utf8',
+    );
+
+    await expect(service(dir).deleteNote('3')).rejects.toThrow(/palacio/i);
+  });
+
+  it('falla si el número no existe', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, '0001-uno-051125.md'), '# Uno\n', 'utf8');
+    await expect(service(dir).deleteNote('9')).rejects.toThrow(/No encontré/);
+  });
+});
+
+describe('MemorizeService.readNote', () => {
+  it('devuelve el cuerpo sin frontmatter por número', async () => {
+    const dir = await vault();
+    await writeFile(
+      path.join(dir, '0007-comprar-cafe-051125.md'),
+      '---\ntitle: Comprar café\nnote_number: 7\n---\n\n# Comprar café\n\nComprar filtros.\n',
+      'utf8',
+    );
+
+    const note = await service(dir).readNote('#0007');
+    expect(note).toMatchObject({
+      title: 'Comprar café',
+      noteNumber: 7,
+      relativePath: '0007-comprar-cafe-051125.md',
+    });
+    expect(note.content).toBe('# Comprar café\n\nComprar filtros.');
+    expect(note.content).not.toContain('---');
+  });
+
+  it('falla si el número no existe', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, '0001-uno-051125.md'), '# Uno\n', 'utf8');
+    await expect(service(dir).readNote('#9')).rejects.toThrow(/No encontré/);
+  });
+});

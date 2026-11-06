@@ -2,6 +2,16 @@
 # Arranca el servidor local de transcripción con faster-whisper.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Carga .env para que WHISPER_* funcione también al lanzar el STT a mano.
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set +a
+fi
+
 cd "$(dirname "$0")"
 
 # CTranslate2 necesita las libs CUDA 12 de los wheels de nvidia-*.

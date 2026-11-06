@@ -69,7 +69,7 @@ export class QuizService {
     const selection = await this.selector.select(expression);
     if (selection.mode === 'explicit' && selection.unresolved.length > 0) {
       throw new Error(
-        `No encontré estas notas: ${selection.unresolved.join(', ')}. Usa el título exacto o la ruta .md.`,
+        `No encontré estas notas: ${selection.unresolved.join(', ')}. Usa el título exacto, el número de nota o la ruta .md.`,
       );
     }
     if (selection.notes.length === 0) {

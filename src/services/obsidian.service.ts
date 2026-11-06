@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
@@ -24,6 +24,7 @@ export interface WrittenNote {
   path: string;
   relativePath: string;
   fileName: string;
+  noteNumber: number;
   title: string;
   tags: string[];
   created: string;
@@ -35,14 +36,22 @@ export interface ObsidianConfig {
 }
 
 export class ObsidianService {
+  private writeQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly config: ObsidianConfig) {}
 
-  render(input: WriteNoteInput): { content: string; frontmatter: NoteFrontmatter; body: string } {
+  render(
+    input: WriteNoteInput,
+    noteNumber?: number,
+  ): { content: string; frontmatter: NoteFrontmatter; body: string } {
     const now = input.now ?? new Date();
     const created = now.toISOString();
     const frontmatter: NoteFrontmatter = {
       id: randomUUID(),
       title: input.digest.title,
+      ...(noteNumber
+        ? { note_number: noteNumber, aliases: [formatNoteNumber(noteNumber)] }
+        : {}),
       summary: input.digest.summary,
       category: input.digest.category,
       tags: input.digest.tags,
@@ -82,13 +91,23 @@ export class ObsidianService {
   }
 
   async write(input: WriteNoteInput): Promise<WrittenNote> {
-    const { content, frontmatter } = this.render(input);
+    const operation = this.writeQueue.then(() => this.writeUnlocked(input));
+    this.writeQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private async writeUnlocked(input: WriteNoteInput): Promise<WrittenNote> {
     const destination = this.resolveDestination(input.subdir);
     await mkdir(destination, { recursive: true });
 
-    const day = (input.now ?? new Date()).toISOString().slice(0, 10);
-    const base = `${day}-${slugify(input.digest.title)}`;
-    const target = await this.uniquePath(destination, base);
+    const now = input.now ?? new Date();
+    const noteNumber = await this.nextNoteNumber();
+    const { content, frontmatter } = this.render(input, noteNumber);
+    const base = `${formatNoteNumber(noteNumber)}-${slugify(input.digest.title)}-${formatNoteDate(now)}`;
+    const target = path.join(destination, `${base}.md`);
 
     const tmp = `${target}.tmp-${randomUUID()}`;
     await writeFile(tmp, content, 'utf8');
@@ -99,6 +118,7 @@ export class ObsidianService {
       path: target,
       relativePath: path.relative(this.config.vaultPath, target),
       fileName: path.basename(target),
+      noteNumber,
       title: frontmatter.title,
       tags: frontmatter.tags,
       created: frontmatter.created,
@@ -164,16 +184,26 @@ export class ObsidianService {
       );
   }
 
-  private async uniquePath(directory: string, base: string): Promise<string> {
-    for (let attempt = 1; attempt <= 100; attempt += 1) {
-      const suffix = attempt === 1 ? '' : `-${attempt}`;
-      const candidate = path.join(directory, `${base}${suffix}.md`);
-      try {
-        await access(candidate);
-      } catch {
-        return candidate;
-      }
+  /** Siguiente número global del vault, mirando el prefijo de cada .md. */
+  private async nextNoteNumber(): Promise<number> {
+    let max = 0;
+    for (const file of await this.listMarkdownFiles()) {
+      // Solo nombres nuevos: NNNN-slug-DDMMAA.md (la fecha vieja YYYY-MM-DD no cuenta).
+      const match = /^(\d{4,})-.+-(\d{6})\.md$/.exec(path.basename(file));
+      if (match) max = Math.max(max, Number(match[1]));
     }
-    throw new Error(`No se pudo encontrar un nombre libre para la nota "${base}".`);
+    return max + 1;
   }
+}
+
+export function formatNoteNumber(value: number): string {
+  return String(value).padStart(4, '0');
+}
+
+/** DDMMAA en hora local. */
+export function formatNoteDate(date: Date): string {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear() % 100).padStart(2, '0');
+  return `${day}${month}${year}`;
 }

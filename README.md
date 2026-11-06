@@ -1,6 +1,6 @@
 # 💡 Idearium
 
-**Versión 0.0.1** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
+**Versión 0.1.0** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
 
 > Captura por voz, texto o documentos → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
 
@@ -113,6 +113,19 @@ sudo journalctl -u idearium -f
 sudo systemctl restart idearium
 ```
 
+### Docker (solo OpenRouter)
+
+Para un servidor sin GPU, la imagen Docker no instala Ollama, Whisper ni CUDA: chat, embeddings y STT se hacen contra OpenRouter. El vault y LanceDB se montan desde el host.
+
+```bash
+cp .env.docker.example .env   # completa OPENROUTER_API_KEY y Telegram
+mkdir -p vault data
+docker compose up -d --build
+docker compose logs -f idearium
+```
+
+El contenedor no expone puertos (usa polling). Para montar tu vault real, define `IDEARIUM_VAULT_DIR` y `IDEARIUM_DATA_DIR` en `.env`. Guía completa, modelos, costes y diagnóstico: **[DOCKER.md](DOCKER.md)**.
+
 ### 1. Modelos de Ollama
 
 No se descargan solos; ejecútalos una vez:
@@ -140,10 +153,13 @@ Si no quieres ejecutar Whisper localmente, apunta `WHISPER_API_URL` a un proveed
 
 OpenRouter cubre las tres piezas: chat, embeddings y transcripción. Una sola `OPENROUTER_API_KEY` basta para no instalar Ollama ni Whisper.
 
+Por defecto `OPENROUTER_REASONING_EFFORT=none`: las tareas del bot (digest, clasificación, RAG, quiz, palacio) son extracción/síntesis sobre contexto ya dado y no necesitan cadena de pensamiento. `deepseek/deepseek-v4.1-flash` razona por defecto, así que `none` evita latencia y tokens de salida extra. Súbelo a `low` solo si `/cluster` o la corrección del quiz empeora.
+
 ```dotenv
 LLM_PREFERENCE=remote_only
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
+OPENROUTER_REASONING_EFFORT=none
 
 EMBEDDING_PROVIDER=openrouter
 OPENROUTER_EMBED_MODEL=baai/bge-m3
@@ -277,11 +293,34 @@ Si el bot no responde:
 - Si hay otra instancia del bot corriendo con el mismo token, Telegram devuelve `409 Conflict`: cierra la otra (`Ctrl+C` o `pkill -f "tsx.*src/index.ts"`).
 - El bot solo funciona con el proceso encendido; no es un servicio en la nube.
 
+#### 3.5 Todo con un solo comando
+
+Para no abrir tres terminales, el script `scripts/local.sh` arranca y para Ollama, el STT y el bot juntos. Los procesos quedan en segundo plano (`setsid`), con PID en `.run/` y logs en `logs/`.
+
+```bash
+npm run local:start      # arranca todo
+npm run local:status     # comprueba procesos y /health
+npm run local:logs       # sigue el log del bot (Ctrl+C para salir)
+npm run local:stop       # detiene todo
+npm run local:restart    # reinicia todo
+```
+
+`npm run local:logs -- stt` y `npm run local:logs -- ollama` muestran los otros logs. Si Ollama ya corría como servicio del sistema, `local:start` lo reutiliza y `local:stop` **no** lo detiene.
+
+En una GTX 1050 Ti el script arranca el STT en CPU (`WHISPER_DEVICE=cpu`, `int8`) para evitar los fallos de CUDA; se puede sobreescribir con esas variables en `.env`.
+
+Antes del primer arranque, descarga los modelos una sola vez:
+
+```bash
+ollama pull qwen2.5:3b
+ollama pull bge-m3
+```
+
 ### 4. Verificación
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 65 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
+npm test         # 90 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -294,15 +333,41 @@ npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 | Guardar una idea | Envía texto libre, una nota de voz o un documento; elige carpeta y categoría |
 | Descartar una captura pendiente | `/cancelar` |
 | Preguntar al vault | `/query ¿qué anoté sobre el presupuesto?` |
+| Listar notas y números | `/notas` o `/notas presupuesto` |
+| Leer una nota | `/notas 7` o `/notas #0007` |
+| Borrar una nota | `/notas rm 7` |
 | Reindexar tras cambios masivos | `/reindex` |
 | Forzar proveedor remoto | `/remoto <texto>` |
 | Crear un estudio que agrupa notas | `/cluster hardware local` |
-| Crear/actualizar un palacio | `/memorize ruta/o/tema` o `/memorize notas A, B y C` |
-| Ver un palacio o listar todos | `/palacio [ruta/o/tema]` |
-| Quiz interactivo | `/quiz tema` o `/quiz notas A, B y C` · `/quiz stop` |
+| Crear/actualizar un palacio | `/memorize ruta/o/tema` (una sola nota) |
+| Ver un palacio o listar todos | `/palacio [número|ruta/o/tema]` |
+| Borrar un palacio | `/palacio rm <número|ruta/o/tema>` |
+| Quiz interactivo | `/quiz tema`, `/quiz 7` o `/quiz notas A, B y C` · `/quiz stop` |
 | Ayuda + estado | `/start` |
 
 El bot responde con título, ruta, tags y proveedor usado. Si el audio o el documento no se puede procesar, no se crea nota y se informa el error.
+
+`/notas` muestra todas las notas con su número (`0001 — Título`); `/notas texto` filtra por título o ruta. Las notas antiguas sin número aparecen por su título. `/notas 7` (o `/notas #0007`) muestra el contenido completo de esa nota, sin frontmatter.
+
+`/notas rm <número|título|ruta>` borra el archivo `.md`, sus chunks del índice y la entrada de `index-state.json`. Solo resuelve coincidencias exactas: número, título o ruta; no borra por tema. Los palacios se borran con `/palacio rm`. No borra el audio ni el documento original, y los enlaces existentes a la nota pueden quedar rotos.
+
+#### Nombres de nota
+
+Cada nota capturada se guarda como:
+
+```text
+NNNN-titulo-DDMMAA.md
+```
+
+Ejemplo: `0007-comprar-filtros-de-cafe-061126.md`.
+
+- `NNNN`: número global del vault, con relleno a 4 dígitos. Se calcula como el mayor número existente + 1, mirando todas las carpetas.
+- `titulo`: slug del título (sin acentos, minúsculas, guiones).
+- `DDMMAA`: fecha local de creación.
+
+El frontmatter incluye `note_number: 7` y `aliases: ["0007"]`, así puedes referenciar la nota desde cualquier otra con `[[0007]]` además de `[[0007-comprar-filtros-de-cafe-061126]]`. También puedes usar el número directamente en el bot: `/quiz 7`, `/memorize 7` o `/palacio 7` (este último busca en la lista de palacios, no en el número de nota).
+
+Las notas antiguas conservan su nombre actual; la numeración se aplica a las nuevas.
 
 #### Clasificación interactiva (carpeta y categoría)
 
@@ -323,20 +388,23 @@ Puedes enviar como archivo `.md`, `.txt`, `.pdf`, `.doc` o `.docx`. El bot:
 
 Límites: los PDF escaneados sin capa de texto no se pueden leer sin OCR; el texto extraído se recorta a `DOCUMENT_MAX_CHARS`. El original no se borra automáticamente.
 
-Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista las fuentes. Si no hay resultados, responde explícitamente que no encontró nada (no inventa).
+Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista **solo las fuentes citadas**. RAG descarta los chunks lejanos al mejor resultado y limita los fragmentos por nota, así que `RAG_TOP_K` es el número de candidatos, no de fuentes finales. Si no hay resultados, responde explícitamente que no encontró nada (no inventa).
 
 #### Palacios de la memoria
 
-- `/palacio` sin argumentos lista todos los palacios, individuales y combinados (`[combinado]`), con título y ruta relativa.
-- `/palacio ruta/o/nota.md` devuelve la sección completa tal cual (sin resumir), partida en varios mensajes si supera el límite de Telegram.
-- `/palacio tema` busca por título y, si no hay coincidencia exacta, por búsqueda semántica; muestra el palacio encontrado.
+- `/palacio` sin argumentos lista todos los palacios numerados, individuales y combinados (`[combinado]`).
+- `/palacio 2` devuelve el palacio número 2 de esa lista.
+- `/palacio ruta/o/nota.md` o `/palacio tema` siguen funcionando para consultar por ruta, título o búsqueda semántica.
+- La respuesta es solo la historia del palacio (texto destilado), sin ruta ni encabezados; si supera el límite de Telegram se parte en varios mensajes.
 - Si la nota no tiene palacio, el bot sugiere crearlo con `/memorize <nota>`.
+- `/palacio rm <número|nota|tema>` borra el archivo de `Palacios/` y quita su enlace de las notas fuente; si era un palacio antiguo dentro de una nota, borra solo esa sección.
 
 #### Quiz multi-nota
 
-`/quiz` acepta el mismo lenguaje natural que `/memorize`:
+`/quiz` acepta un número de nota, listas de notas o un tema:
 
 ```text
+/quiz 7
 /quiz sobre las notas Sprint 3, Retrospectiva y OKR del equipo
 /quiz procedimiento de compra
 ```
@@ -346,20 +414,24 @@ Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista las fuente
 - El feedback cita `[[Título]]` y el resumen final muestra aciertos por nota.
 - Si no hay notas para el tema, no empieza el quiz y lo dice.
 
-#### Palacios multi-nota
+#### Palacios de la memoria
 
-`/memorize` acepta varias notas separadas por comas, punto y coma o `y`/`e`, y también un tema:
+`/memorize` crea el palacio de **una sola nota**. Si la expresión coincide con varias notas, no elige una al azar: muestra una lista de botones para que elijas.
 
 ```text
-/memorize palacio de la memoria de las notas Cafetería, Presupuesto y Proveedores
-/memorize palacio de memoria de todos los pasos del procedimiento de compra
+/memorize Filtro de café
+/memorize procedimiento de compra
 ```
 
-- Con una sola nota, el palacio se escribe dentro de esa nota (comportamiento clásico).
-- Con varias notas o un tema, se crea una nota nueva en `Palacios/YYYY-MM-DD-palacio-<tema>.md` con `type: palacio` y la lista de `source_notes`.
-- El recorrido es único e integra las notas, citando `[[Título]]`; no se inventan datos ausentes.
-- Límites configurables con `MEMORY_MAX_NOTES` (5 por defecto) y `MEMORY_MAX_CHARS` (24.000 por defecto). Si se recorta, la nota lo indica.
-- Para títulos que contengan comas, usa comillas: `/memorize notas "Compras, ventas y stock", Presupuesto`.
+- Si hay una sola coincidencia, crea o actualiza el palacio directamente.
+- Si hay varias, muestra hasta 5 candidatas con botones; al pulsar una se genera el palacio de esa nota.
+- Una lista explícita (`/memorize Nota A, Nota B`) se rechaza: el palacio multi-nota dejó de exponerse en el bot porque elegía notas poco precisas.
+- Al terminar, el mensaje indica el número del palacio y cómo leerlo con `/palacio <número>`.
+- El palacio se crea como nota nueva en `Palacios/YYYY-MM-DD-palacio-<tema>.md` con `type: palacio` y `source_notes`.
+- En la nota original solo queda un enlace `[[Palacios/...|Palacio — Título]]` dentro de `## Palacio de la memoria`; no se copia la historia.
+- La historia tiene 4–6 escenas con lugar, idea e imagen absurda; no copia párrafos de la nota.
+- `/palacio` muestra esa historia directamente, sin encabezados ni el texto completo del vault.
+- El contexto se limita con `MEMORY_MAX_CHARS` (24.000 por defecto); si se recorta, la nota lo indica.
 
 El listado sirve para copiar la ruta y consultarla directamente; solo se leen archivos `.md` del vault, ignorando `.obsidian/` y `.trash/`.
 
@@ -369,6 +441,7 @@ El listado sirve para copiar la ruta y consultarla directamente; solo se leen ar
 npm run cli -- text "Idea capturada desde terminal" [--remote]
 npm run cli -- audio ./nota.ogg [--remote]
 npm run cli -- query "¿qué ideas tengo sobre X?"
+npm run cli -- notes [texto]
 npm run cli -- reindex
 ```
 
@@ -380,6 +453,8 @@ npm run cli -- reindex
 ---
 id: 3f1c…
 title: Repensar el índice
+note_number: 7
+aliases: ["0007"]
 summary: La búsqueda debe priorizar notas recientes.
 category: idea
 tags:
@@ -438,10 +513,11 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `OPENROUTER_API_KEY` | vacío | Activa OpenRouter (chat, embeddings y STT) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Endpoint de chat/embeddings |
 | `OPENROUTER_MODEL` | vacío → `openai/gpt-4o-mini` | Modelo de chat de OpenRouter |
+| `OPENROUTER_REASONING_EFFORT` | `none` | `none`, `minimal`, `low`, `medium`, `high`; `none` evita tokens de razonamiento |
 | `LLM_REMOTE_MODEL` | vacío | Alias histórico para el modelo de OpenRouter |
-| `RAG_TOP_K` | `8` | Chunks recuperados por consulta |
-| `MEMORY_MAX_NOTES` | `5` | Máximo de notas para un palacio/quiz multi-nota |
-| `MEMORY_MAX_CHARS` | `24000` | Máximo de caracteres de contexto multi-nota |
+| `RAG_TOP_K` | `8` | Candidatos recuperados; se filtran por distancia antes de responder |
+| `MEMORY_MAX_NOTES` | `5` | Máximo de candidatas del quiz multi-nota y de la lista de `/memorize` |
+| `MEMORY_MAX_CHARS` | `24000` | Máximo de caracteres de contexto para palacio/quiz |
 | `LOG_LEVEL` | `info` | Nivel de pino |
 
 ### Enrutado local/remoto
@@ -458,6 +534,10 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | Comando | Qué hace |
 | --- | --- |
 | `npm run dev` | Bot + watcher con recarga |
+| `npm run local:start` | Ollama + STT + bot en segundo plano |
+| `npm run local:stop` | Detiene todo lo arrancado por `local:start` |
+| `npm run local:status` | Estado de procesos y healthchecks |
+| `npm run local:logs` | Sigue los logs (`-- stt` / `-- ollama`) |
 | `npm run build` | Compila TypeScript a `dist/` |
 | `npm start` | Ejecuta `dist/index.js` |
 | `npm test` | Vitest |
@@ -497,7 +577,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 
 ## Estado y roadmap
 
-**v0.0.1** incluye captura de texto, voz y documentos; clasificación interactiva; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria multi-nota; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
+**v0.1.0** incluye captura de texto, voz y documentos; clasificación interactiva; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
 
 Pendiente:
 

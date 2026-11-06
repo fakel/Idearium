@@ -4,6 +4,31 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
+## [0.1.0] - 2026-11-06
+
+### Añadido
+
+- Imagen Docker solo OpenRouter (sin Ollama, Whisper, CUDA ni GPU): chat, embeddings y STT remotos, con vault y datos en volúmenes.
+- Script `scripts/local.sh` y comandos `npm run local:*` para arrancar/parar bot, STT y Ollama en local.
+- Notas nuevas con nombre `NNNN-titulo-DDMMAA.md`, `note_number` y alias `NNNN` para referencias directas por número; `/quiz 7` y `/memorize 7` aceptan ese número.
+- Comando `/notas [texto]` y `npm run cli -- notes [texto]` para listar notas con su número, con filtro opcional.
+- Comando `/notas rm <número|título|ruta>` para borrar una nota, su índice y su entrada de estado.
+- `/notas <número>` y `/notas #<número>` muestran el contenido completo de una nota, sin frontmatter.
+
+### Cambiado
+
+- Palacios de memoria más breves (4–7 escenas, máximo 1800 caracteres); `/palacio` muestra solo la historia, no la sección completa ni el texto de la nota.
+- `/palacio` sin argumentos muestra una lista numerada y `/palacio <número>` lee el palacio correspondiente.
+- El mensaje de `/memorize` indica el número asignado al palacio creado; si la búsqueda devuelve varias notas, el bot muestra una lista de opciones.
+- Todos los palacios se guardan en `Palacios/`; la nota original solo conserva un enlace al palacio, sin la historia completa.
+- `/palacio rm <número|nota|tema>` borra el palacio y sus enlaces.
+- `/query` filtra los chunks por cercanía al mejor resultado y limita los fragmentos por nota, en lugar de usar siempre todo el `topK`.
+- `/query` lista solo las fuentes citadas en la respuesta, no todos los resultados recuperados.
+
+### Corregido
+
+- RAG podía mostrar notas del curso sin relación con la consulta cuando el mejor resultado tenía una distancia mucho menor que el resto.
+
 ## [0.0.1] - 2026-11-05
 
 Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice vectorial, RAG, palacios de memoria, quizzes y soporte de documentos.
@@ -45,7 +70,7 @@ Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice
 - **Conocimiento y estudio**
   - `/cluster <tema>`: agrupa notas relacionadas en un estudio Markdown dentro de `Estudios/`.
   - `/memorize <ruta|tema>`: genera un palacio de la memoria con ruta física, imágenes y repaso.
-  - Palacios multi-nota: selección determinista por lista o por tema, nota combinada en `Palacios/` con `type: palacio` y `source_notes`.
+  - Palacios: se crean en `Palacios/` con `type: palacio` y `source_notes`; `/memorize` trabaja con una sola nota y, si hay ambigüedad, muestra una lista para elegir.
   - `/palacio [ruta|tema]`: lista todos los palacios (incluidos los combinados) o muestra uno completo.
   - `/quiz <tema>` y `/quiz notas A, B y C`: quiz interactivo con puntaje, feedback y fuentes por nota; `/quiz stop` para terminar.
 
@@ -79,4 +104,5 @@ Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice
 - No hay comando `/delete`; las notas se borran desde Obsidian o el sistema de archivos y el watcher/reindex limpia el índice.
 - No hay pruebas automáticas de llamadas reales a OpenRouter por falta de clave en el entorno de desarrollo.
 
+[0.1.0]: https://github.com/fakel/Idearium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/fakel/Idearium/releases/tag/v0.0.1

@@ -1,0 +1,23 @@
+name: idearium-openrouter
+
+# Imagen solo OpenRouter. No hay Ollama, Whisper, CUDA ni GPU.
+# El vault y los datos quedan en el host; las notas se escriben en /vault.
+services:
+  idearium:
+    build:
+      context: .
+    image: idearium:openrouter
+    env_file:
+      - .env
+    environment:
+      OBSIDIAN_VAULT_PATH: /vault
+      LANCEDB_PATH: /data/lancedb
+      AUDIO_DIR: /data/audio
+      DOCUMENT_DIR: /data/documents
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${IDEARIUM_VAULT_DIR:-./vault}:/vault
+      - ${IDEARIUM_DATA_DIR:-./data}:/data
+    user: "1000:1000"
+    restart: unless-stopped
+    stop_grace_period: 30s

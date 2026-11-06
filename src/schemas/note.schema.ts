@@ -4,6 +4,8 @@ import { noteCategories, noteSources } from './noteDigest.schema.js';
 export const noteFrontmatterSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
+  note_number: z.number().int().positive().optional(),
+  aliases: z.array(z.string()).optional(),
   summary: z.string().min(1),
   category: z.enum(noteCategories),
   tags: z.array(z.string()),

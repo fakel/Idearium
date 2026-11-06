@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import matter from 'gray-matter';
@@ -47,13 +47,26 @@ describe('ObsidianService', () => {
   });
 
   it('escribe archivos atómicos y evita colisiones', async () => {
-    const first = await service.write({ digest, source: 'cli_text', transcript: 'uno' });
-    const second = await service.write({ digest, source: 'cli_text', transcript: 'dos' });
+    const now = new Date(2026, 0, 2, 12, 0, 0);
+    const first = await service.write({ digest, source: 'cli_text', transcript: 'uno', now });
+    const second = await service.write({ digest, source: 'cli_text', transcript: 'dos', now });
 
     expect(first.path).not.toBe(second.path);
-    expect(path.basename(first.path)).toMatch(/^\d{4}-\d{2}-\d{2}-repensar-el-indice\.md$/);
-    expect(path.basename(second.path)).toContain('-2.md');
+    expect(path.basename(first.path)).toBe('0001-repensar-el-indice-020126.md');
+    expect(path.basename(second.path)).toBe('0002-repensar-el-indice-020126.md');
+    expect(first.noteNumber).toBe(1);
+    expect(second.noteNumber).toBe(2);
+    const parsed = matter(await readFile(first.path, 'utf8'));
+    expect(parsed.data.note_number).toBe(1);
+    expect(parsed.data.aliases).toEqual(['0001']);
     expect(await readFile(first.path, 'utf8')).toContain('uno');
+  });
+
+  it('ignora las fechas antiguas al calcular el número', async () => {
+    await writeFile(path.join(vault, '2026-01-02-nota-vieja.md'), '# vieja\n', 'utf8');
+    const note = await service.write({ digest, source: 'cli_text', transcript: 'nueva' });
+    expect(note.noteNumber).toBe(1);
+    expect(path.basename(note.path)).toMatch(/^0001-/);
   });
 
   it('guarda en la subcarpeta elegida y lista carpetas/categorías', async () => {

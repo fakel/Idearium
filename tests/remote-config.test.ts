@@ -17,6 +17,7 @@ describe('env remoto (solo OpenRouter)', () => {
     expect(env.remoteProviders[0]).toMatchObject({
       name: 'openrouter',
       model: 'openai/gpt-4o-mini',
+      reasoningEffort: 'none',
     });
   });
 
@@ -28,6 +29,15 @@ describe('env remoto (solo OpenRouter)', () => {
     });
 
     expect(env.remoteProviders[0]!.model).toBe('google/gemini-3.1-flash-lite');
+  });
+
+  it('permite cambiar el esfuerzo de razonamiento', () => {
+    const env = parseEnv({
+      OPENROUTER_API_KEY: 'or-key',
+      OPENROUTER_REASONING_EFFORT: 'low',
+    });
+
+    expect(env.remoteProviders[0]!.reasoningEffort).toBe('low');
   });
 
   it('mantiene LLM_REMOTE_MODEL como alias de OpenRouter', () => {

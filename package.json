@@ -1,6 +1,6 @@
 {
   "name": "idearium",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Local-first voice-to-vault AI knowledge engine",
   "main": "index.js",
   "scripts": {
@@ -12,7 +12,13 @@
     "install:server": "bash scripts/install-server.sh",
     "doctor": "bash scripts/doctor.sh",
     "smoke": "bash scripts/smoke.sh",
-    "stt": "bash stt/start.sh"
+    "stt": "bash stt/start.sh",
+    "local": "bash scripts/local.sh",
+    "local:start": "bash scripts/local.sh start",
+    "local:stop": "bash scripts/local.sh stop",
+    "local:restart": "bash scripts/local.sh restart",
+    "local:status": "bash scripts/local.sh status",
+    "local:logs": "bash scripts/local.sh logs"
   },
   "repository": {
     "type": "git",

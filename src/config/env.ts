@@ -15,11 +15,15 @@ export type RemoteProviderName = (typeof remoteProviderNames)[number];
 export const embeddingProviders = ['ollama', 'openrouter'] as const;
 export type EmbeddingProvider = (typeof embeddingProviders)[number];
 
+export const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high'] as const;
+export type ReasoningEffort = (typeof reasoningEfforts)[number];
+
 export interface RemoteProviderConfig {
   name: RemoteProviderName;
   apiKey: string;
   baseUrl: string;
   model: string;
+  reasoningEffort: ReasoningEffort;
 }
 
 const csv = (value: string): string[] =>
@@ -83,6 +87,8 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().trim().optional().default(''),
   OPENROUTER_BASE_URL: z.string().trim().min(1).default('https://openrouter.ai/api/v1'),
   OPENROUTER_MODEL: z.string().trim().default(''),
+  /** none = sin tokens de razonamiento; subir solo para tareas que lo necesiten. */
+  OPENROUTER_REASONING_EFFORT: z.enum(reasoningEfforts).default('none'),
   /** Alias histórico: si está definido, se usa como modelo de OpenRouter. */
   LLM_REMOTE_MODEL: z.string().trim().default(''),
 
@@ -135,6 +141,7 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
       baseUrl: parsed.OPENROUTER_BASE_URL,
       // LLM_REMOTE_MODEL se conserva como alias para instalaciones antiguas.
       model: parsed.OPENROUTER_MODEL || parsed.LLM_REMOTE_MODEL || 'openai/gpt-4o-mini',
+      reasoningEffort: parsed.OPENROUTER_REASONING_EFFORT,
     });
   }
 

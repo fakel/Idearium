@@ -276,6 +276,7 @@ export function createLlmRouter(env: Env, logger: RouterLogger = defaultLogger):
         apiKey: provider.apiKey,
         baseUrl: provider.baseUrl,
         model: provider.model,
+        reasoningEffort: provider.reasoningEffort,
         timeoutMs: env.LLM_TIMEOUT_MS,
       }),
   );

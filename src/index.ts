@@ -19,10 +19,13 @@ async function main(): Promise<void> {
 
   const bot = createBot(runtime);
   await bot.init();
+  const remoteFirst = env.effectivePreference === 'remote_only' || env.effectivePreference === 'remote_first';
+  const remote = env.remoteProviders[0];
   logger.info(
     {
       username: bot.botInfo.username,
-      model: env.OLLAMA_MODEL,
+      provider: remoteFirst && remote ? remote.name : 'ollama',
+      model: remoteFirst && remote ? remote.model : env.OLLAMA_MODEL,
       preference: env.effectivePreference,
       vault: env.OBSIDIAN_VAULT_PATH,
     },

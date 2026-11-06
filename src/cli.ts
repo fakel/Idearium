@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { createRuntime } from './bootstrap.js';
 import { loadEnv } from './config/env.js';
+import { formatNoteList } from './lib/note-list.js';
 
 const usage = `Idearium CLI
 
@@ -10,6 +11,7 @@ Uso:
   npm run cli -- text "una idea" [--remote]
   npm run cli -- audio ./ruta/audio.ogg [--remote]
   npm run cli -- query "¿qué anoté sobre X?"
+  npm run cli -- notes [texto]
   npm run cli -- reindex
 
 Opciones:
@@ -66,6 +68,16 @@ async function main(): Promise<void> {
             console.log(`- [[${source.title}]] (${source.path})`);
           }
         }
+        break;
+      }
+      case 'notes': {
+        const notes = await runtime.memorize.listNotes();
+        const filtered = input
+          ? notes.filter((note) =>
+              `${note.title} ${note.relativePath}`.toLowerCase().includes(input.toLowerCase()),
+            )
+          : notes;
+        console.log(formatNoteList(filtered));
         break;
       }
       case 'reindex': {

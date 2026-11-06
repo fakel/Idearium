@@ -109,6 +109,34 @@ describe('NoteSelectorService', () => {
     expect(selection.notes.map((item) => item.title)).toEqual(['A', 'B']);
   });
 
+  it('resuelve una nota por su número, con o sin relleno', async () => {
+    const dir = await vault();
+    await writeFile(
+      path.join(dir, '0007-comprar-filtros-051126.md'),
+      note('Comprar filtros').replace('category: idea', 'category: idea\nnote_number: 7'),
+      'utf8',
+    );
+
+    const selector = new NoteSelectorService({ vaultPath: dir }, fakeVector([]), fakeEmbedder());
+    const byNumber = await selector.select('quiz sobre 7');
+    const byPadded = await selector.select('#0007');
+
+    expect(byNumber.notes).toHaveLength(1);
+    expect(byNumber.notes[0]?.title).toBe('Comprar filtros');
+    expect(byNumber.notes[0]?.noteNumber).toBe(7);
+    expect(byPadded.notes[0]?.title).toBe('Comprar filtros');
+  });
+
+  it('lee el número del nombre si falta en el frontmatter', async () => {
+    const dir = await vault();
+    await writeFile(path.join(dir, '0012-otra-nota-051126.md'), note('Otra nota'), 'utf8');
+
+    const selector = new NoteSelectorService({ vaultPath: dir }, fakeVector([]), fakeEmbedder());
+    const selection = await selector.select('0012');
+
+    expect(selection.notes[0]?.noteNumber).toBe(12);
+  });
+
   it('devuelve una selección vacía si el tema no tiene coincidencias', async () => {
     const dir = await vault();
     await writeFile(path.join(dir, 'a.md'), note('A'), 'utf8');

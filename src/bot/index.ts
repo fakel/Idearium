@@ -4,10 +4,12 @@ import type { Runtime } from '../bootstrap.js';
 import { truncate } from '../lib/text.js';
 import type { IngestResult, PreparedIngest } from '../controllers/ingest.controller.js';
 import { PendingCaptureStore, type PendingCapture } from '../services/pending.service.js';
+import type { MemorizeResult } from '../services/memorize.service.js';
 import { isSupportedDocumentExtension, supportedDocumentExtensions } from '../services/document.service.js';
 import { categoryOptions, normalizeCategory, normalizeFolder, type NoteCategory } from '../lib/classification.js';
 import { noteCategories } from '../schemas/noteDigest.schema.js';
 import { logger, type Logger } from '../lib/logger.js';
+import { formatNoteList } from '../lib/note-list.js';
 
 const maxTelegramChars = 4000;
 const maxDocumentBytes = 20 * 1024 * 1024;
@@ -19,12 +21,16 @@ const helpText = [
   '',
   'Comandos:',
   '/query <pregunta> — buscar en tus notas (RAG)',
+  '/notas [texto] — listar notas y su número',
+  '/notas <número> — mostrar el contenido de una nota',
+  '/notas rm <número|título|ruta> — borrar una nota',
   '/reindex — reindexar todo el vault',
   '/remoto <texto> — forzar el proveedor remoto',
   '/cluster <tema> — crear un estudio que agrupa notas',
-  '/memorize <nota|tema|varias notas> — crear palacio de la memoria',
-  '/palacio [nota|tema] — ver un palacio o listar todos',
-  '/quiz <tema|varias notas> — quiz interactivo multi-nota',
+  '/memorize <nota|tema> — crear palacio de una sola nota',
+  '/palacio [número|nota|tema] — ver un palacio o listar todos',
+  '/palacio rm <número|nota|tema> — borrar un palacio y sus enlaces',
+  '/quiz <número|tema|varias notas> — quiz interactivo multi-nota',
   '/quiz stop — terminar el quiz actual',
   '/cancelar — descartar la captura pendiente',
   '/start — esta ayuda y estado del sistema',
@@ -33,6 +39,11 @@ const helpText = [
 export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   const bot = new Bot(runtime.env.TELEGRAM_BOT_TOKEN);
   const pending = new PendingCaptureStore();
+  const palaceChoices = new Map<
+    number,
+    { notes: Array<{ path: string; title: string }>; expiresAt: number }
+  >();
+  const palaceChoiceTtlMs = 10 * 60 * 1000;
   const allowed = new Set(runtime.env.TELEGRAM_ALLOWED_USER_IDS.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
 
   bot.use(async (ctx, next) => {
@@ -57,6 +68,72 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         `Notas indexadas (chunks): ${count}`,
       ].join('\n'),
     );
+  });
+
+  bot.command('notas', async (ctx) => {
+    const raw = ctx.match.trim();
+    const removing = /^rm(?:\s+(.+))?$/i.exec(raw);
+    if (removing) {
+      const target = removing[1]?.trim();
+      if (!target) {
+        return reply(ctx, 'Uso: /notas rm <número|título|ruta>');
+      }
+      await typing(ctx);
+      try {
+        const deleted = await runtime.memorize.deleteNote(target);
+        const number = deleted.noteNumber
+          ? ` (#${String(deleted.noteNumber).padStart(4, '0')})`
+          : '';
+        return reply(
+          ctx,
+          `🗑️ Nota eliminada: ${deleted.title}${number}\n${deleted.relativePath}\n\nSi había un palacio, sus enlaces pueden quedar obsoletos.`,
+        );
+      } catch (error) {
+        return replyError(ctx, error);
+      }
+    }
+
+    const numeric = /^#?(\d{1,9})$/.exec(raw);
+    if (numeric) {
+      await typing(ctx);
+      try {
+        const note = await runtime.memorize.readNote(numeric[1]);
+        const number = note.noteNumber
+          ? ` (#${String(note.noteNumber).padStart(4, '0')})`
+          : '';
+        return replyLong(
+          ctx,
+          [
+            `📄 ${note.title}${number}`,
+            note.relativePath,
+            '',
+            note.content || '_Nota vacía._',
+          ].join('\n'),
+        );
+      } catch (error) {
+        return replyError(ctx, error);
+      }
+    }
+
+    const filter = raw.toLowerCase();
+    await typing(ctx);
+    try {
+      const notes = await runtime.memorize.listNotes();
+      const filtered = filter
+        ? notes.filter((note) =>
+            `${note.title} ${note.relativePath}`.toLowerCase().includes(filter),
+          )
+        : notes;
+      if (filtered.length === 0) {
+        return reply(
+          ctx,
+          filter ? `No hay notas que coincidan con "${filter}".` : 'No hay notas en el vault.',
+        );
+      }
+      await replyLong(ctx, formatNoteList(filtered));
+    } catch (error) {
+      await replyError(ctx, error);
+    }
   });
 
   bot.command('query', async (ctx) => {
@@ -137,28 +214,91 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!target) {
       return reply(
         ctx,
-        'Uso: /memorize <nota|tema|varias notas>\nEjemplo: /memorize palacio de la memoria de las notas A, B y C',
+        'Uso: /memorize <nota|tema>\nSi hay varias coincidencias, te muestro una lista para elegir una sola nota.',
       );
     }
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+
     await typing(ctx);
     try {
-      const result = await runtime.memorize.run(target);
-      const status = result.combined
-        ? `Palacio combinado creado (${result.noteCount} notas)`
-        : result.created
-          ? 'Palacio añadido'
-          : 'Palacio actualizado';
-      const sources = result.combined ? `\nNotas: ${result.notes.join(', ')}` : '';
-      await reply(ctx, `${status}: ${result.title}\n${result.path}${sources}`);
+      const candidates = await runtime.memorize.candidates(target);
+      if (candidates.length === 0) {
+        return reply(ctx, `No encontré notas para "${target}". Prueba con el título o la ruta .md.`);
+      }
+      if (candidates.length === 1) {
+        const result = await runtime.memorize.run(candidates[0]!.path);
+        await sendPalaceCreated(ctx, result);
+        return;
+      }
+
+      palaceChoices.set(chatId, {
+        notes: candidates.map((note) => ({ path: note.path, title: note.title })),
+        expiresAt: Date.now() + palaceChoiceTtlMs,
+      });
+      const keyboard = new InlineKeyboard();
+      candidates.forEach((note, index) => {
+        if (index > 0 && index % 2 === 0) keyboard.row();
+        keyboard.text(truncate(note.title, 48), `pm:${index}`);
+      });
+      await replyKeyboard(
+        ctx,
+        `Encontré ${candidates.length} notas para "${target}". ¿De cuál quieres el palacio?`,
+        keyboard,
+      );
     } catch (error) {
       await replyError(ctx, error);
     }
   });
 
+  async function sendPalaceCreated(ctx: Context, result: MemorizeResult): Promise<void> {
+    const status = result.combined
+      ? `Palacio combinado creado (${result.noteCount} notas)`
+      : result.created
+        ? 'Palacio añadido'
+        : 'Palacio actualizado';
+    const sources = result.combined ? `Notas: ${result.notes.join(', ')}` : '';
+    const palaces = await runtime.memorize.listPalaces();
+    const number = findPalaceNumber(palaces, result.path);
+    const lines = [`${status}: ${result.title}`, result.path];
+    if (number) lines.push(`Número: ${number} — consulta con /palacio ${number}`);
+    if (sources) lines.push(sources);
+    await reply(ctx, lines.join('\n'));
+  }
+
   bot.command('palacio', async (ctx) => {
     const target = ctx.match.trim();
     await typing(ctx);
     try {
+      const remove = /^rm(?:\s+(.+))?$/i.exec(target);
+      if (remove) {
+        const requested = remove[1]?.trim();
+        if (!requested) {
+          return reply(ctx, 'Uso: /palacio rm <número|nota|tema>');
+        }
+        const index = parsePalaceIndex(requested);
+        let targetPath = requested;
+        if (index !== null) {
+          const palaces = await runtime.memorize.listPalaces();
+          const selected = palaces[index - 1];
+          if (!selected) {
+            return reply(
+              ctx,
+              `No hay palacio número ${index}. Usa /palacio para ver la lista (${palaces.length} en total).`,
+            );
+          }
+          targetPath = selected.path;
+        }
+        const result = await runtime.memorize.deletePalace(targetPath);
+        const where = result.deletedFile
+          ? result.path
+          : `Sección eliminada de ${result.path}`;
+        return reply(
+          ctx,
+          `🗑️ Palacio eliminado: ${result.title}\n${where}\nEnlaces eliminados: ${result.references}`,
+        );
+      }
+
       if (!target) {
         const palaces = await runtime.memorize.listPalaces();
         if (palaces.length === 0) {
@@ -168,13 +308,30 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
           `🏛️ Palacios de la memoria (${palaces.length}):`,
           '',
           ...palaces.map(
-            (palace) =>
-              `• ${palace.combined ? '[combinado] ' : ''}[[${palace.title}]] — ${palace.relativePath}`,
+            (palace, index) =>
+              `${index + 1}. ${palace.combined ? '[combinado] ' : ''}${palace.title}`,
           ),
           '',
-          'Consulta uno con /palacio <ruta-o-tema>.',
+          'Consulta uno con /palacio <número> o /palacio <nota|tema>.',
         ];
         return replyLong(ctx, lines.join('\n'));
+      }
+
+      const index = parsePalaceIndex(target);
+      if (index !== null) {
+        const palaces = await runtime.memorize.listPalaces();
+        const selected = palaces[index - 1];
+        if (!selected) {
+          return reply(
+            ctx,
+            `No hay palacio número ${index}. Usa /palacio para ver la lista (${palaces.length} en total).`,
+          );
+        }
+        const palace = await runtime.memorize.readPalace(selected.path);
+        if (!palace) {
+          return reply(ctx, `No se pudo leer el palacio número ${index}. Prueba /palacio de nuevo.`);
+        }
+        return replyLong(ctx, formatPalace(palace));
       }
 
       const palace = await runtime.memorize.readPalace(target);
@@ -185,10 +342,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         );
       }
 
-      return replyLong(
-        ctx,
-        `🏛️ ${palace.combined ? '[combinado] ' : ''}${palace.title}\n${palace.path}\n\n${palace.section}`,
-      );
+      return replyLong(ctx, formatPalace(palace));
     } catch (error) {
       await replyError(ctx, error);
     }
@@ -335,6 +489,31 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!chatId) return;
     const data = ctx.callbackQuery.data;
     await ctx.answerCallbackQuery().catch(() => undefined);
+
+    if (data.startsWith('pm:')) {
+      const choice = palaceChoices.get(chatId);
+      if (!choice || choice.expiresAt < Date.now()) {
+        palaceChoices.delete(chatId);
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('La lista de notas caducó. Vuelve a enviar /memorize.');
+        return;
+      }
+      const note = choice.notes[Number(data.slice(3))];
+      if (!note) {
+        await ctx.reply('Opción de nota no válida.');
+        return;
+      }
+      palaceChoices.delete(chatId);
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      await typing(ctx);
+      try {
+        const result = await runtime.memorize.run(note.path);
+        await sendPalaceCreated(ctx, result);
+      } catch (error) {
+        await replyError(ctx, error);
+      }
+      return;
+    }
 
     const capture = pending.get(chatId);
     if (!capture) {
@@ -519,6 +698,27 @@ export function splitMessage(text: string, limit: number): string[] {
   }
   if (rest) parts.push(rest);
   return parts;
+}
+
+export function parsePalaceIndex(input: string): number | null {
+  const match = /^#?(\d+)$/.exec(input.trim());
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+export function findPalaceNumber(
+  palaces: Array<{ path: string }>,
+  target: string,
+): number | null {
+  const index = palaces.findIndex(
+    (palace) => path.resolve(palace.path) === path.resolve(target),
+  );
+  return index >= 0 ? index + 1 : null;
+}
+
+function formatPalace(palace: { title: string; combined: boolean; story: string; section: string }): string {
+  return `🏛️ ${palace.combined ? '[combinado] ' : ''}${palace.title}\n\n${palace.story || palace.section}`;
 }
 
 async function replyError(ctx: Context, error: unknown): Promise<void> {
