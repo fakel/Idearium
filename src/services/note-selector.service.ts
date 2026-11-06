@@ -201,8 +201,18 @@ export class NoteSelectorService {
 
     const numeric = /^#?(\d{1,9})$/.exec(trimmed);
     if (numeric) {
-      const wanted = Number(numeric[1]);
+      const raw = numeric[1];
       const notes = await this.listNotes();
+
+      // Las notas del curso usan prefijos de dos dígitos ("00 Indice.md")
+      // y no tienen note_number para no chocar con la numeración global.
+      if (raw.length === 2) {
+        const prefix = new RegExp(`^${raw}(?:\\s|[-_.])`);
+        const course = notes.find((note) => prefix.test(path.basename(note.path, '.md')));
+        if (course) return course;
+      }
+
+      const wanted = Number(raw);
       return notes.find((note) => note.noteNumber === wanted) ?? null;
     }
 

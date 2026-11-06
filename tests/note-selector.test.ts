@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -125,6 +125,25 @@ describe('NoteSelectorService', () => {
     expect(byNumber.notes[0]?.title).toBe('Comprar filtros');
     expect(byNumber.notes[0]?.noteNumber).toBe(7);
     expect(byPadded.notes[0]?.title).toBe('Comprar filtros');
+  });
+
+  it('resuelve notas del curso por prefijo de dos dígitos', async () => {
+    const dir = await vault();
+    const courseDir = path.join(dir, 'Aprendizaje', 'Idearium');
+    await mkdir(courseDir, { recursive: true });
+    await writeFile(path.join(courseDir, '00 Indice.md'), note('Índice del curso'), 'utf8');
+    await writeFile(
+      path.join(dir, '0001-captura-061126.md'),
+      note('Captura').replace('category: idea', 'category: idea\nnote_number: 1'),
+      'utf8',
+    );
+
+    const selector = new NoteSelectorService({ vaultPath: dir }, fakeVector([]), fakeEmbedder());
+    const course = await selector.select('00');
+    const capture = await selector.select('0001');
+
+    expect(course.notes[0]?.title).toBe('Índice del curso');
+    expect(capture.notes[0]?.title).toBe('Captura');
   });
 
   it('lee el número del nombre si falta en el frontmatter', async () => {

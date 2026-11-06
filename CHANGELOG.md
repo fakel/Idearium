@@ -10,6 +10,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 - OCR de fotos con `message:photo`, modelo multimodal de OpenRouter (`OPENROUTER_VISION_MODEL`; vacío usa `OPENROUTER_MODEL`), confirmación del texto detectado (usar, corregir o cancelar) antes de resumir, `image_file` en el frontmatter y `IMAGES_DIR`.
 
+### Corregido
+
+- Las notas del curso con prefijo de dos dígitos (`00`–`21`) se pueden consultar con `/notas 00`, sin asignarles `note_number` ni chocar con la numeración global de capturas.
+
 ## [0.1.0] - 2026-11-06
 
 ### Añadido
