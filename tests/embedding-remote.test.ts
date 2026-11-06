@@ -39,6 +39,36 @@ describe('OpenAICompatibleEmbeddingService', () => {
     );
   });
 
+  it('respeta el índice aunque los vectores lleguen desordenados', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              { index: 1, embedding: [0.3, 0.4] },
+              { index: 0, embedding: [0.1, 0.2] },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+
+    const embedder = new OpenAICompatibleEmbeddingService({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'or-key',
+      model: 'baai/bge-m3',
+      dimension: 2,
+      timeoutMs: 5_000,
+    });
+
+    await expect(embedder.embed(['uno', 'dos'])).resolves.toEqual([
+      [0.1, 0.2],
+      [0.3, 0.4],
+    ]);
+  });
+
   it('falla si la dimensión no coincide con EMBEDDING_DIM', async () => {
     vi.stubGlobal(
       'fetch',

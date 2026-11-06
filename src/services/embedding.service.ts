@@ -81,7 +81,7 @@ export class OllamaEmbeddingService implements Embedder {
 }
 
 interface OpenAIEmbeddingResponse {
-  data?: Array<{ embedding?: number[] }>;
+  data?: Array<{ embedding?: number[]; index?: number }>;
   error?: { message?: string };
 }
 
@@ -130,14 +130,20 @@ export class OpenAICompatibleEmbeddingService implements Embedder {
     }
 
     const data = (await response.json()) as OpenAIEmbeddingResponse;
-    const vectors = data.data?.map((item) => item.embedding);
-    if (!vectors || vectors.length !== texts.length || vectors.some((vector) => !Array.isArray(vector))) {
+    const items = data.data ?? [];
+    if (items.length !== texts.length || items.some((item) => !Array.isArray(item.embedding))) {
       throw new ProviderError(
-        `${this.label} embeddings devolvió ${vectors?.length ?? 0} vectores para ${texts.length} textos (${data.error?.message ?? 'sin detalle'}).`,
+        `${this.label} embeddings devolvió ${items.length} vectores para ${texts.length} textos (${data.error?.message ?? 'sin detalle'}).`,
         'remote-embed',
       );
     }
-    const validated = vectors as number[][];
+
+    // Algunos proveedores devuelven los vectores desordenados; el índice
+    // indica a qué texto de entrada pertenece cada uno.
+    const ordered = items.every((item) => Number.isInteger(item.index))
+      ? [...items].sort((a, b) => (a.index as number) - (b.index as number))
+      : items;
+    const validated = ordered.map((item) => item.embedding as number[]);
 
     for (const vector of validated) {
       if (vector.length !== this.config.dimension) {
