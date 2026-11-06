@@ -4,6 +4,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
 import { assertInsideVault } from '../lib/vault-path.js';
+import { uniquePath } from '../lib/unique-path.js';
 import type { Embedder } from './embedding.service.js';
 import type { TextCompleter } from './rag.service.js';
 import type { VectorStore } from './vector.service.js';
@@ -607,18 +608,6 @@ function normalizeText(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-}
-
-async function uniquePath(directory: string, base: string): Promise<string> {
-  for (let index = 1; index <= 100; index += 1) {
-    const candidate = path.join(directory, index === 1 ? `${base}.md` : `${base}-${index}.md`);
-    try {
-      await readFile(candidate, 'utf8');
-    } catch {
-      return candidate;
-    }
-  }
-  throw new Error(`No se pudo encontrar un nombre libre para ${base}.md`);
 }
 
 /** Return an H2 section (heading + body) or null when it does not exist. */

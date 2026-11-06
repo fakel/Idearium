@@ -3,6 +3,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
+import { uniquePath } from '../lib/unique-path.js';
 import type { Embedder } from './embedding.service.js';
 import type { TextCompleter } from './rag.service.js';
 import type { VectorStore } from './vector.service.js';
@@ -71,8 +72,8 @@ export class ClusterService {
 
     const title = extractTitle(completion.value) ?? `Estudio: ${trimmed}`;
     const day = new Date().toISOString().slice(0, 10);
-    const fileName = `${day}-cluster-${slugify(trimmed)}.md`;
-    const target = path.join(this.config.studiesDir, fileName);
+    await mkdir(this.config.studiesDir, { recursive: true });
+    const target = await uniquePath(this.config.studiesDir, `${day}-cluster-${slugify(trimmed)}`);
 
     const content = matter.stringify(`${completion.value.trim()}\n`, {
       title,
@@ -84,7 +85,6 @@ export class ClusterService {
       notes_used: dedupePaths(hits),
     });
 
-    await mkdir(this.config.studiesDir, { recursive: true });
     const tmp = `${target}.tmp-${randomUUID()}`;
     await writeFile(tmp, content, 'utf8');
     await rename(tmp, target);
