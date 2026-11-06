@@ -70,7 +70,13 @@ export class SttService {
       {
         attempts: 2,
         baseDelayMs: 800,
-        isRetryable: (error) => !(error instanceof Error && /respondió 4\d\d/.test(error.message)),
+        isRetryable: (error) => {
+          if (!(error instanceof Error)) return true;
+          const status = /respondió (\d{3})/.exec(error.message)?.[1];
+          if (!status) return true;
+          // 429/408 son transitorios; el resto de 4xx no se reintenta.
+          return !status.startsWith('4') || status === '429' || status === '408';
+        },
       },
     );
   }

@@ -44,4 +44,36 @@ describe('SttService', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('reintenta cuando el proveedor responde 429', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'idearium-stt-'));
+    dirs.push(dir);
+    const audio = path.join(dir, 'nota.ogg');
+    await writeFile(audio, Buffer.from('fake-audio'));
+
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ detail: 'rate limited' }), { status: 429 });
+      }
+      return new Response(JSON.stringify({ text: 'hola' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const stt = new SttService({
+      baseUrl: 'https://api.example.com',
+      timeoutMs: 5_000,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(stt.transcribe(audio)).resolves.toEqual({
+      text: 'hola',
+      language: undefined,
+      duration: undefined,
+    });
+    expect(calls).toBe(2);
+  });
 });
