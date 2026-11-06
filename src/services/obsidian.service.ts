@@ -14,6 +14,7 @@ export interface WriteNoteInput {
   transcript: string;
   audioFile?: string;
   documentFile?: string;
+  imageFile?: string;
   /** Carpeta destino relativa al vault. Si se omite, usa notesDir. */
   subdir?: string;
   now?: Date;
@@ -61,6 +62,7 @@ export class ObsidianService {
       language: input.digest.language,
       ...(input.audioFile ? { audio_file: input.audioFile } : {}),
       ...(input.documentFile ? { document_file: input.documentFile } : {}),
+      ...(input.imageFile ? { image_file: input.imageFile } : {}),
     };
 
     const ideas = input.digest.key_ideas.map((idea) => `- ${idea}`).join('\n');

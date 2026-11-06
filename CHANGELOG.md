@@ -4,6 +4,12 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
+## [Unreleased]
+
+### Añadido
+
+- OCR de fotos con `message:photo`, modelo multimodal de OpenRouter (`OPENROUTER_VISION_MODEL`; vacío usa `OPENROUTER_MODEL`), confirmación del texto detectado (usar, corregir o cancelar) antes de resumir, `image_file` en el frontmatter y `IMAGES_DIR`.
+
 ## [0.1.0] - 2026-11-06
 
 ### Añadido

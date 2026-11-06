@@ -23,6 +23,7 @@ export OBSIDIAN_VAULT_PATH="${OBSIDIAN_VAULT_PATH:-/vault}"
 export LANCEDB_PATH="${LANCEDB_PATH:-/data/lancedb}"
 export AUDIO_DIR="${AUDIO_DIR:-/data/audio}"
 export DOCUMENT_DIR="${DOCUMENT_DIR:-/data/documents}"
+export IMAGES_DIR="${IMAGES_DIR:-/data/images}"
 export NOTE_SUBDIR="${NOTE_SUBDIR:-Idearium}"
 
 echo "idearium: OpenRouter only (chat + embeddings + STT); sin modelos locales ni GPU" >&2

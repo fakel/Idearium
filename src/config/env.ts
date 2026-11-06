@@ -77,6 +77,7 @@ const envSchema = z.object({
   AUDIO_DIR: z.string().trim().min(1).default('./data/audio'),
   DOCUMENT_DIR: z.string().trim().min(1).default('./data/documents'),
   DOCUMENT_MAX_CHARS: z.coerce.number().int().min(1_000).max(1_000_000).default(200_000),
+  IMAGES_DIR: z.string().trim().min(1).default('./data/images'),
   EMBEDDING_DIM: z.coerce.number().int().positive().default(1024),
 
   LLM_PREFERENCE: z.enum(llmPreferences).default('local_first'),
@@ -87,6 +88,8 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().trim().optional().default(''),
   OPENROUTER_BASE_URL: z.string().trim().min(1).default('https://openrouter.ai/api/v1'),
   OPENROUTER_MODEL: z.string().trim().default(''),
+  /** Modelo multimodal para OCR. Vacío = usa OPENROUTER_MODEL. */
+  OPENROUTER_VISION_MODEL: z.string().trim().default(''),
   /** none = sin tokens de razonamiento; subir solo para tareas que lo necesiten. */
   OPENROUTER_REASONING_EFFORT: z.enum(reasoningEfforts).default('none'),
   /** Alias histórico: si está definido, se usa como modelo de OpenRouter. */
@@ -111,6 +114,8 @@ export type Env = z.infer<typeof envSchema> & {
   hasRemote: boolean;
   /** True when embeddings are served by a remote provider. */
   hasRemoteEmbeddings: boolean;
+  /** Multimodal model used for photo OCR; empty when OpenRouter is unavailable. */
+  visionModel: string;
   /** Preference actually in effect (degraded to local_first when remote is unusable). */
   effectivePreference: LlmPreference;
 };
@@ -146,6 +151,9 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
 
   const hasRemote = remoteProviders.length > 0;
+  const visionModel = hasRemote
+    ? parsed.OPENROUTER_VISION_MODEL || remoteProviders[0]!.model
+    : '';
   let effectivePreference = parsed.LLM_PREFERENCE;
   if (!hasRemote && (effectivePreference === 'remote_first' || effectivePreference === 'remote_only')) {
     console.warn(
@@ -160,6 +168,7 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     remoteProviders,
     hasRemote,
     hasRemoteEmbeddings: parsed.EMBEDDING_PROVIDER === 'openrouter',
+    visionModel,
     effectivePreference,
   };
 }

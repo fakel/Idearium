@@ -14,6 +14,7 @@ export const noteFrontmatterSchema = z.object({
   source: z.enum(noteSources),
   audio_file: z.string().optional(),
   document_file: z.string().optional(),
+  image_file: z.string().optional(),
   language: z.string().optional(),
 });
 

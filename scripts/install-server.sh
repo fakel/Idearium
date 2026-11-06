@@ -156,11 +156,15 @@ if [[ $NEW_ENV -eq 1 ]]; then
   set_env NOTE_SUBDIR "Idearium"
   set_env LANCEDB_PATH "$RUNTIME_ROOT/lancedb"
   set_env AUDIO_DIR "$RUNTIME_ROOT/audio"
+  set_env DOCUMENT_DIR "$RUNTIME_ROOT/documents"
+  set_env IMAGES_DIR "$RUNTIME_ROOT/images"
 else
   ensure_env OBSIDIAN_VAULT_PATH "$DEFAULT_VAULT"
   ensure_env NOTE_SUBDIR "Idearium"
   ensure_env LANCEDB_PATH "$RUNTIME_ROOT/lancedb"
   ensure_env AUDIO_DIR "$RUNTIME_ROOT/audio"
+  ensure_env DOCUMENT_DIR "$RUNTIME_ROOT/documents"
+  ensure_env IMAGES_DIR "$RUNTIME_ROOT/images"
 fi
 
 chmod 600 "$ENV_FILE"
@@ -359,11 +363,13 @@ VAULT="$(resolve_runtime_path "$(get_env OBSIDIAN_VAULT_PATH "$DEFAULT_VAULT")")
 NOTE_SUBDIR="$(get_env NOTE_SUBDIR "Idearium")"
 LANCEDB="$(resolve_runtime_path "$(get_env LANCEDB_PATH "$RUNTIME_ROOT/lancedb")")"
 AUDIO="$(resolve_runtime_path "$(get_env AUDIO_DIR "$RUNTIME_ROOT/audio")")"
+DOCUMENT="$(resolve_runtime_path "$(get_env DOCUMENT_DIR "$RUNTIME_ROOT/documents")")"
+IMAGES="$(resolve_runtime_path "$(get_env IMAGES_DIR "$RUNTIME_ROOT/images")")"
 
-install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$VAULT/$NOTE_SUBDIR" "$LANCEDB" "$AUDIO"
+install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$VAULT/$NOTE_SUBDIR" "$LANCEDB" "$AUDIO" "$DOCUMENT" "$IMAGES"
 
 PERM_FAILED=0
-for path in "$VAULT/$NOTE_SUBDIR" "$LANCEDB" "$AUDIO"; do
+for path in "$VAULT/$NOTE_SUBDIR" "$LANCEDB" "$AUDIO" "$DOCUMENT" "$IMAGES"; do
   if ! runuser -u "$SERVICE_USER" -- test -w "$path"; then
     warn "El usuario $SERVICE_USER no puede escribir en $path"
     PERM_FAILED=1

@@ -9,6 +9,7 @@ import { Indexer } from './services/indexer.service.js';
 import { createLlmRouter, type LlmRouter } from './services/llm-router.service.js';
 import { MemorizeService } from './services/memorize.service.js';
 import { NoteSelectorService } from './services/note-selector.service.js';
+import { OcrService } from './services/ocr.service.js';
 import { ObsidianService } from './services/obsidian.service.js';
 import { QuizService } from './services/quiz.service.js';
 import { RagService } from './services/rag.service.js';
@@ -26,6 +27,7 @@ export interface Runtime {
   storage: StorageService;
   stt: SttService;
   documents: DocumentService;
+  ocr: OcrService;
   ingest: IngestController;
   rag: RagService;
   selector: NoteSelectorService;
@@ -75,9 +77,17 @@ export async function createRuntime(env: Env): Promise<Runtime> {
   const storage = new StorageService({
     audioDir: env.AUDIO_DIR,
     documentDir: env.DOCUMENT_DIR,
+    imageDir: env.IMAGES_DIR,
     botToken: env.TELEGRAM_BOT_TOKEN,
   });
   const documents = new DocumentService({ maxChars: env.DOCUMENT_MAX_CHARS });
+  const ocr = new OcrService({
+    apiKey: env.OPENROUTER_API_KEY,
+    baseUrl: env.OPENROUTER_BASE_URL,
+    model: env.visionModel,
+    reasoningEffort: env.OPENROUTER_REASONING_EFFORT,
+    timeoutMs: env.LLM_TIMEOUT_MS,
+  });
   const stt = new SttService({
     baseUrl: env.WHISPER_API_URL,
     // OpenRouter expone STT con la misma cuenta; permite no duplicar la clave.
@@ -88,7 +98,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     timeoutMs: env.WHISPER_TIMEOUT_MS,
   });
 
-  const ingest = new IngestController({ router, obsidian, stt, documents, indexer });
+  const ingest = new IngestController({ router, obsidian, stt, documents, ocr, indexer });
   const rag = new RagService({ topK: env.RAG_TOP_K }, vector, embedder, router);
   const selector = new NoteSelectorService(
     { vaultPath: env.OBSIDIAN_VAULT_PATH, maxNotes: env.MEMORY_MAX_NOTES, maxChars: env.MEMORY_MAX_CHARS },
@@ -120,6 +130,7 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     storage,
     stt,
     documents,
+    ocr,
     ingest,
     rag,
     selector,

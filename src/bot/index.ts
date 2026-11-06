@@ -4,6 +4,7 @@ import type { Runtime } from '../bootstrap.js';
 import { truncate } from '../lib/text.js';
 import type { IngestResult, PreparedIngest } from '../controllers/ingest.controller.js';
 import { PendingCaptureStore, type PendingCapture } from '../services/pending.service.js';
+import { PendingOcrStore, type PendingOcr } from '../services/pending-ocr.service.js';
 import type { MemorizeResult } from '../services/memorize.service.js';
 import { isSupportedDocumentExtension, supportedDocumentExtensions } from '../services/document.service.js';
 import { categoryOptions, normalizeCategory, normalizeFolder, type NoteCategory } from '../lib/classification.js';
@@ -17,7 +18,8 @@ const maxDocumentBytes = 20 * 1024 * 1024;
 const helpText = [
   'Idearium — tu memoria externa en Obsidian.',
   '',
-  'Envíame texto, una nota de voz o un documento (.md, .pdf, .txt, .doc, .docx).',
+  'Envíame texto, una nota de voz, una foto con texto o un documento (.md, .pdf, .txt, .doc, .docx).',
+  'Tras el OCR de una foto te pediré confirmar o corregir el texto antes de guardar.',
   '',
   'Comandos:',
   '/query <pregunta> — buscar en tus notas (RAG)',
@@ -39,6 +41,7 @@ const helpText = [
 export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   const bot = new Bot(runtime.env.TELEGRAM_BOT_TOKEN);
   const pending = new PendingCaptureStore();
+  const pendingOcr = new PendingOcrStore();
   const palaceChoices = new Map<
     number,
     { notes: Array<{ path: string; title: string }>; expiresAt: number }
@@ -163,8 +166,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
 
     await typing(ctx);
     try {
-      if (pending.has(ctx.chat.id)) {
-        return reply(ctx, 'Tienes una captura pendiente. Elige carpeta y categoría o usa /cancelar.');
+      if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+        return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
       }
       const prepared = await runtime.ingest.prepareText(text, {
         source: 'telegram_text',
@@ -177,10 +180,13 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   });
 
   bot.command('cancelar', async (ctx) => {
+    const clearedOcr = pendingOcr.clear(ctx.chat.id);
     const cleared = pending.clear(ctx.chat.id);
     await reply(
       ctx,
-      cleared ? 'Captura cancelada. No se guardó la nota.' : 'No hay una captura pendiente.',
+      clearedOcr || cleared
+        ? 'Captura cancelada. No se guardó la nota.'
+        : 'No hay una captura pendiente.',
     );
   });
 
@@ -353,8 +359,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     const chatId = ctx.chat.id;
 
     if (!topic) return reply(ctx, 'Uso: /quiz <tema> o /quiz stop');
-    if (topic.toLowerCase() !== 'stop' && pending.has(chatId)) {
-      return reply(ctx, 'Termina la captura pendiente (carpeta y categoría) o usa /cancelar antes de empezar un quiz.');
+    if (topic.toLowerCase() !== 'stop' && (pending.has(chatId) || pendingOcr.has(chatId))) {
+      return reply(ctx, 'Termina la captura pendiente o usa /cancelar antes de empezar un quiz.');
     }
     if (topic.toLowerCase() === 'stop') {
       const stopped = runtime.quiz.stop(chatId);
@@ -371,8 +377,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   });
 
   bot.on('message:voice', async (ctx) => {
-    if (pending.has(ctx.chat.id)) {
-      return reply(ctx, 'Tienes una captura pendiente. Elige carpeta y categoría o usa /cancelar.');
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+      return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
     if (runtime.quiz.hasSession(ctx.chat.id)) {
       return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar una nota de voz.');
@@ -391,6 +397,30 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     }
   });
 
+  bot.on('message:photo', async (ctx) => {
+    const photo = ctx.message.photo.at(-1);
+    if (!photo) return;
+    if (photo.file_size && photo.file_size > maxDocumentBytes) {
+      return reply(ctx, 'La foto supera el límite de 20 MB de Telegram.');
+    }
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+      return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
+    }
+    if (runtime.quiz.hasSession(ctx.chat.id)) {
+      return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar una foto.');
+    }
+
+    await typing(ctx);
+    try {
+      const stored = await runtime.storage.saveTelegramPhoto(photo.file_id);
+      const ocr = await runtime.ocr.extract(stored.path);
+      const waiting = pendingOcr.create(ctx.chat.id, ocr.text, stored.path);
+      await sendOcrConfirmation(ctx, waiting);
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  });
+
   bot.on('message:document', async (ctx) => {
     const document = ctx.message.document;
     const fileName = document.file_name ?? 'documento';
@@ -402,8 +432,8 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (document.file_size && document.file_size > maxDocumentBytes) {
       return reply(ctx, 'El documento supera el límite de 20 MB de Telegram.');
     }
-    if (pending.has(ctx.chat.id)) {
-      return reply(ctx, 'Tienes una captura pendiente. Elige carpeta y categoría o usa /cancelar.');
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+      return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
     if (runtime.quiz.hasSession(ctx.chat.id)) {
       return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar un documento.');
@@ -427,6 +457,17 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!text) return;
     if (text.startsWith('/')) {
       await reply(ctx, 'Comando no reconocido. Usa /start para ver la ayuda.');
+      return;
+    }
+
+    const ocr = pendingOcr.get(ctx.chat.id);
+    if (ocr) {
+      if (ocr.stage === 'editing') {
+        const updated = pendingOcr.updateText(ctx.chat.id, text);
+        if (updated) await sendOcrConfirmation(ctx, updated);
+        return;
+      }
+      await reply(ctx, 'Tienes una foto pendiente de confirmar. Usa los botones del mensaje o /cancelar.');
       return;
     }
 
@@ -489,6 +530,49 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!chatId) return;
     const data = ctx.callbackQuery.data;
     await ctx.answerCallbackQuery().catch(() => undefined);
+
+    if (data.startsWith('ocr:')) {
+      const waiting = pendingOcr.get(chatId);
+      if (!waiting) {
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('La confirmación de la foto caducó. Envía la foto de nuevo.');
+        return;
+      }
+
+      if (data === 'ocr:cancel') {
+        pendingOcr.clear(chatId);
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('Foto descartada. No se guardó ninguna nota.');
+        return;
+      }
+
+      if (data === 'ocr:edit') {
+        pendingOcr.setStage(chatId, 'editing');
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('Envía el texto corregido de la foto. Puedes usar /cancelar para descartarla.');
+        return;
+      }
+
+      if (data !== 'ocr:ok') return;
+      if (waiting.stage !== 'confirm') {
+        await ctx.reply('Envía primero el texto corregido.');
+        return;
+      }
+
+      await typing(ctx);
+      try {
+        const prepared = await runtime.ingest.prepareText(waiting.text, {
+          source: 'telegram_photo',
+          imageFile: waiting.imageFile,
+        });
+        pendingOcr.clear(chatId);
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await startClassification(ctx, prepared);
+      } catch (error) {
+        await replyError(ctx, error);
+      }
+      return;
+    }
 
     if (data.startsWith('pm:')) {
       const choice = palaceChoices.get(chatId);
@@ -557,6 +641,23 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       await finishClassification(ctx, capture, category);
     }
   });
+
+  async function sendOcrConfirmation(ctx: Context, waiting: PendingOcr): Promise<void> {
+    const preview = truncate(waiting.text, 3200);
+    const lines = [
+      `📷 Texto detectado (${waiting.text.length} caracteres):`,
+      '',
+      preview,
+    ];
+    if (preview.length < waiting.text.length) lines.push('', '_Vista previa recortada._');
+    lines.push('', '¿Es correcto?');
+    const keyboard = new InlineKeyboard()
+      .text('✅ Usar este texto', 'ocr:ok')
+      .row()
+      .text('✏️ Corregir', 'ocr:edit')
+      .text('❌ Cancelar', 'ocr:cancel');
+    await replyKeyboard(ctx, lines.join('\n'), keyboard);
+  }
 
   async function startClassification(ctx: Context, prepared: PreparedIngest): Promise<void> {
     if (!ctx.chat) return;
@@ -645,11 +746,12 @@ async function typing(ctx: Context): Promise<void> {
 }
 
 function capturePreview(prepared: PreparedIngest): string {
-  return [
+  const lines = [
     `📝 ${prepared.digest.title}`,
     truncate(prepared.digest.summary, 400),
     `Categoría sugerida: #${prepared.digest.category}`,
-  ].join('\n');
+  ];
+  return lines.join('\n');
 }
 
 function folderKeyboard(folders: string[]): InlineKeyboard {

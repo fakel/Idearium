@@ -7,6 +7,7 @@ import type { Indexer } from '../services/indexer.service.js';
 import type { NoteSource, ObsidianService, WrittenNote } from '../services/obsidian.service.js';
 import type { SttService } from '../services/stt.service.js';
 import type { DocumentService } from '../services/document.service.js';
+import type { OcrService } from '../services/ocr.service.js';
 
 export interface DigestCompleter {
   completeJson<T>(request: JsonCompletionRequest<T>): Promise<Completion<T>>;
@@ -17,6 +18,7 @@ export interface IngestDeps {
   obsidian: ObsidianService;
   stt?: SttService;
   documents?: DocumentService;
+  ocr?: OcrService;
   indexer?: Indexer;
   logger?: Logger;
 }
@@ -26,6 +28,7 @@ export interface IngestOptions {
   remote?: boolean;
   audioFile?: string;
   documentFile?: string;
+  imageFile?: string;
 }
 
 export interface IngestResult {
@@ -47,6 +50,7 @@ export interface PreparedIngest {
   source: NoteSource;
   audioFile?: string;
   documentFile?: string;
+  imageFile?: string;
   provider: string;
   model: string;
   usedRemote: boolean;
@@ -78,6 +82,7 @@ export class IngestController {
       source: options.source,
       ...(options.audioFile ? { audioFile: options.audioFile } : {}),
       ...(options.documentFile ? { documentFile: options.documentFile } : {}),
+      ...(options.imageFile ? { imageFile: options.imageFile } : {}),
       provider: digest.provider,
       model: digest.model,
       usedRemote: digest.usedRemote,
@@ -105,6 +110,16 @@ export class IngestController {
     });
   }
 
+  async preparePhoto(filePath: string, options: IngestOptions): Promise<PreparedIngest> {
+    if (!this.deps.ocr) throw new Error('El servicio de OCR no está configurado.');
+    const ocr = await this.deps.ocr.extract(filePath);
+    return this.prepareText(ocr.text, {
+      ...options,
+      source: 'telegram_photo',
+      imageFile: filePath,
+    });
+  }
+
   async save(prepared: PreparedIngest, options: SaveIngestOptions = {}): Promise<IngestResult> {
     const digest: NoteDigest = options.category
       ? { ...prepared.digest, category: options.category }
@@ -116,6 +131,7 @@ export class IngestController {
       transcript: prepared.transcript,
       audioFile: prepared.audioFile,
       documentFile: prepared.documentFile,
+      imageFile: prepared.imageFile,
       subdir: options.subdir,
     });
 
@@ -144,6 +160,10 @@ export class IngestController {
 
   async ingestDocument(filePath: string, options: IngestOptions): Promise<IngestResult> {
     return this.save(await this.prepareDocument(filePath, options));
+  }
+
+  async ingestPhoto(filePath: string, options: IngestOptions): Promise<IngestResult> {
+    return this.save(await this.preparePhoto(filePath, options));
   }
 
   private async digest(transcript: string, remote: boolean): Promise<Completion<NoteDigest>> {

@@ -2,15 +2,16 @@
 
 **Versión 0.1.0** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
 
-> Captura por voz, texto o documentos → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
+> Captura por voz, texto, foto o documento → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
 
-Idearium es una capa de memoria personal _local-first_. Le mandas una nota de voz, un texto o un documento por Telegram (o usas el CLI), y el sistema:
+Idearium es una capa de memoria personal _local-first_. Le mandas una nota de voz, un texto, una foto con texto o un documento por Telegram (o usas el CLI), y el sistema:
 
-1. transcribe el audio con **faster-whisper** en tu GPU,
-2. estructura la captura con un LLM local (**Ollama**) validado con **Zod**,
-3. escribe una nota Markdown con frontmatter en tu **vault de Obsidian**,
-4. la indexa en **LanceDB** con embeddings (`bge-m3`, local o remoto),
-5. te deja consultarla por RAG, agruparla en estudios, generar palacios de memoria y hacer quizzes.
+1. transcribe el audio con **faster-whisper** en tu GPU (o con OpenRouter),
+2. extrae el texto de una foto con un modelo multimodal,
+3. estructura la captura con un LLM local (**Ollama**) o remoto validado con **Zod**,
+4. escribe una nota Markdown con frontmatter en tu **vault de Obsidian**,
+5. la indexa en **LanceDB** con embeddings (`bge-m3`, local o remoto),
+6. te deja consultarla por RAG, agruparla en estudios, generar palacios de memoria y hacer quizzes.
 
 Todo el contenido y los vectores viven en tu máquina por defecto. Si no tienes GPU suficiente, puedes usar **OpenRouter** para chat, embeddings y transcripción con una sola clave.
 
@@ -19,10 +20,11 @@ Todo el contenido y los vectores viven en tu máquina por defecto. Si no tienes 
 ## Arquitectura
 
 ```text
-Telegram (voz/texto/doc) ──┐
+Telegram (voz/texto/foto/doc) ──┐
 CLI (texto/audio)     ──┴──► IngestController
                                 │
                                 ├─ STT local (faster-whisper, GPU) u OpenRouter   [solo voz]
+                                ├─ OCR multimodal vía OpenRouter                  [solo foto]
                                 ├─ LLM Router ── Ollama (local)
                                 │             └─ OpenRouter (remoto)
                                 ├─ Zod valida el JSON y reintenta
@@ -330,7 +332,7 @@ npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 
 | Acción | Cómo |
 | --- | --- |
-| Guardar una idea | Envía texto libre, una nota de voz o un documento; elige carpeta y categoría |
+| Guardar una idea | Envía texto libre, una nota de voz, una foto con texto o un documento; elige carpeta y categoría |
 | Descartar una captura pendiente | `/cancelar` |
 | Preguntar al vault | `/query ¿qué anoté sobre el presupuesto?` |
 | Listar notas y números | `/notas` o `/notas presupuesto` |
@@ -345,7 +347,7 @@ npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 | Quiz interactivo | `/quiz tema`, `/quiz 7` o `/quiz notas A, B y C` · `/quiz stop` |
 | Ayuda + estado | `/start` |
 
-El bot responde con título, ruta, tags y proveedor usado. Si el audio o el documento no se puede procesar, no se crea nota y se informa el error.
+El bot responde con título, ruta, tags y proveedor usado. Si el audio, la foto o el documento no se puede procesar, no se crea nota y se informa el error.
 
 `/notas` muestra todas las notas con su número (`0001 — Título`); `/notas texto` filtra por título o ruta. Las notas antiguas sin número aparecen por su título. `/notas 7` (o `/notas #0007`) muestra el contenido completo de esa nota, sin frontmatter.
 
@@ -371,12 +373,12 @@ Las notas antiguas conservan su nombre actual; la numeración se aplica a las nu
 
 #### Clasificación interactiva (carpeta y categoría)
 
-Cada texto, nota de voz o documento se detiene antes de guardarse para que elijas dónde va:
+Cada texto, nota de voz, foto o documento se detiene antes de guardarse para que elijas dónde va:
 
 1. **Carpeta**: botones con las carpetas del vault que ya contienen notas (incluida `Idearium`), más `➕ Otra carpeta`. También puedes escribir un nombre relativo, por ejemplo `Proyectos/Idearium`; la carpeta se crea si no existe.
 2. **Categoría**: botones con las categorías ya usadas en el vault (ordenadas por frecuencia), empezando por la que sugirió el LLM, más `➕ Otra categoría`. También puedes escribir una: `#idea`, `#tarea`, `#aprendizaje`, `#referencia`, `#proyecto`, `#personal` u `#otro` (se aceptan plurales).
 
-La captura preparada vive en memoria hasta 30 minutos. Si el bot se reinicia o pasa ese tiempo, hay que volver a enviarla. `/cancelar` la descarta sin escribir nada; el audio o documento descargado puede quedar en `data/audio/` o `data/documents/` para limpieza manual.
+La captura preparada vive en memoria hasta 30 minutos. Si el bot se reinicia o pasa ese tiempo, hay que volver a enviarla. `/cancelar` la descarta sin escribir nada; el audio, la foto o el documento descargado puede quedar en `data/audio/`, `data/images/` o `data/documents/` para limpieza manual.
 
 #### Documentos
 
@@ -387,6 +389,20 @@ Puedes enviar como archivo `.md`, `.txt`, `.pdf`, `.doc` o `.docx`. El bot:
 3. Lo pasa por el mismo flujo de clasificación (carpeta y categoría) y guarda el `.md` con `document_file` en el frontmatter.
 
 Límites: los PDF escaneados sin capa de texto no se pueden leer sin OCR; el texto extraído se recorta a `DOCUMENT_MAX_CHARS`. El original no se borra automáticamente.
+
+#### Fotos (OCR)
+
+Puedes enviar una foto como foto normal de Telegram (no como archivo). El bot:
+
+1. Elige la resolución más grande que envió Telegram y la descarga en `IMAGES_DIR` (20 MB máximo).
+2. La envía al modelo multimodal configurado en `OPENROUTER_VISION_MODEL`; si está vacío, usa `OPENROUTER_MODEL`.
+3. Muestra el texto detectado y pide confirmación con tres botones: **Usar este texto**, **Corregir** o **Cancelar**.
+4. Solo si confirmas, genera el resumen y sigue el flujo normal de carpeta/categoría.
+5. Guarda la nota con `image_file` en el frontmatter.
+
+El modelo actual `deepseek/deepseek-v4.1-flash` acepta texto e imágenes, así que sirve para chat y OCR. Si cambias `OPENROUTER_MODEL` por uno solo-texto, define `OPENROUTER_VISION_MODEL` con un modelo multimodal.
+
+Límites: el OCR funciona bien con texto impreso y capturas; para manuscritos o fotos muy torcidas la calidad depende del modelo. Si no detecta texto, responde `No se detectó texto legible` y no crea una nota vacía. La foto sale hacia OpenRouter; no se usa OCR local.
 
 Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista **solo las fuentes citadas**. RAG descarta los chunks lejanos al mejor resultado y limita los fragmentos por nota, así que `RAG_TOP_K` es el número de candidatos, no de fuentes finales. Si no hay resultados, responde explícitamente que no encontró nada (no inventa).
 
@@ -503,6 +519,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `AUDIO_DIR` | `./data/audio` | Audios descargados |
 | `DOCUMENT_DIR` | `./data/documents` | Documentos originales descargados |
 | `DOCUMENT_MAX_CHARS` | `200000` | Máximo de texto extraído de un documento |
+| `IMAGES_DIR` | `./data/images` | Fotos originales para OCR |
 | `EMBEDDING_DIM` | `1024` | Debe coincidir con el modelo de embeddings |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` o `openrouter` |
 | `OPENROUTER_EMBED_MODEL` | `baai/bge-m3` | Modelo de embeddings remoto (1024 dims) |
@@ -513,6 +530,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `OPENROUTER_API_KEY` | vacío | Activa OpenRouter (chat, embeddings y STT) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Endpoint de chat/embeddings |
 | `OPENROUTER_MODEL` | vacío → `openai/gpt-4o-mini` | Modelo de chat de OpenRouter |
+| `OPENROUTER_VISION_MODEL` | vacío → `OPENROUTER_MODEL` | Modelo multimodal para OCR de fotos |
 | `OPENROUTER_REASONING_EFFORT` | `none` | `none`, `minimal`, `low`, `medium`, `high`; `none` evita tokens de razonamiento |
 | `LLM_REMOTE_MODEL` | vacío | Alias histórico para el modelo de OpenRouter |
 | `RAG_TOP_K` | `8` | Candidatos recuperados; se filtran por distancia antes de responder |
@@ -573,15 +591,16 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - Solo sale de tu máquina lo que envíes a Telegram (que es inevitable) y, si activas OpenRouter, el texto de la captura/consulta, los fragmentos usados por RAG, los embeddings y/o el audio enviados a OpenRouter.
 - Con `EMBEDDING_PROVIDER=openrouter`, los textos de tus notas también salen hacia OpenRouter para calcular vectores.
 - Con STT remoto, el audio sale hacia el proveedor configurado en `WHISPER_API_URL`.
+- Con OCR remoto, la foto sale hacia OpenRouter; el texto detectado se guarda en la nota.
 - Los audios se guardan en `data/audio/`; bórralos cuando quieras.
 
 ## Estado y roadmap
 
-**v0.1.0** incluye captura de texto, voz y documentos; clasificación interactiva; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
+**v0.1.0** incluye captura de texto, voz, fotos con OCR y documentos; clasificación interactiva; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
 
 Pendiente:
 
-- OCR para fotos y PDF escaneados (F5).
+- OCR para PDF escaneados (las fotos ya usan OCR multimodal).
 - Webhook opcional de Telegram para despliegues con HTTPS (F6).
 - Búsqueda híbrida BM25, resúmenes periódicos, multi-vault e integración móvil fuera de Telegram.
 

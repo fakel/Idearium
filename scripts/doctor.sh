@@ -31,6 +31,7 @@ LLM_PREFERENCE="${LLM_PREFERENCE:-local_first}"
 VAULT="${OBSIDIAN_VAULT_PATH:-$HOME/Documents/IdeariumVault}"
 NOTE_SUBDIR="${NOTE_SUBDIR:-Idearium}"
 LANCEDB_PATH="${LANCEDB_PATH:-./data/lancedb}"
+IMAGES_DIR="${IMAGES_DIR:-./data/images}"
 
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
@@ -104,11 +105,12 @@ else
   fi
 fi
 
-if mkdir -p "${VAULT}/${NOTE_SUBDIR}" && touch "${VAULT}/${NOTE_SUBDIR}/.write-test" 2>/dev/null; then
-  rm -f "${VAULT}/${NOTE_SUBDIR}/.write-test"
+if mkdir -p "${VAULT}/${NOTE_SUBDIR}" "${IMAGES_DIR}" && touch "${VAULT}/${NOTE_SUBDIR}/.write-test" "${IMAGES_DIR}/.write-test" 2>/dev/null; then
+  rm -f "${VAULT}/${NOTE_SUBDIR}/.write-test" "${IMAGES_DIR}/.write-test"
   pass "Vault escribible: ${VAULT}/${NOTE_SUBDIR}"
+  pass "Fotos escribibles: ${IMAGES_DIR}"
 else
-  fail "El vault no es escribible: ${VAULT}/${NOTE_SUBDIR}"
+  fail "El vault o IMAGES_DIR no son escribibles: ${VAULT}/${NOTE_SUBDIR}, ${IMAGES_DIR}"
 fi
 
 if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
@@ -148,6 +150,7 @@ fi
 
 if (( HAS_REMOTE )); then
   info "Proveedor remoto disponible: OpenRouter (${OPENROUTER_MODEL:-${LLM_REMOTE_MODEL:-openai/gpt-4o-mini}})"
+  info "OCR de fotos: ${OPENROUTER_VISION_MODEL:-${OPENROUTER_MODEL:-${LLM_REMOTE_MODEL:-openai/gpt-4o-mini}}} (debe aceptar imágenes)"
 else
   info "Sin OPENROUTER_API_KEY: modo 100% local"
 fi

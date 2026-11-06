@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 export interface StorageConfig {
   audioDir: string;
   documentDir?: string;
+  imageDir?: string;
   botToken: string;
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -40,6 +41,17 @@ export class StorageService {
     const day = new Date().toISOString().slice(0, 10);
     const target = path.join(this.config.audioDir, day, `${randomUUID()}.${extension}`);
     return this.downloadTelegramFile(fileId, target, 'audio');
+  }
+
+  /** Stream a Telegram photo to the images directory. */
+  async saveTelegramPhoto(fileId: string, extension = 'jpg'): Promise<StoredFile> {
+    if (!this.config.imageDir) {
+      throw new Error('IMAGES_DIR no está configurado; no se puede guardar la foto.');
+    }
+
+    const day = new Date().toISOString().slice(0, 10);
+    const target = path.join(this.config.imageDir, day, `${randomUUID()}.${extension}`);
+    return this.downloadTelegramFile(fileId, target, 'foto');
   }
 
   /** Download a Telegram document preserving its extension. */

@@ -5,6 +5,7 @@ Esta imagen no instala Ollama, Whisper, CUDA ni drivers NVIDIA. Todo el trabajo 
 - **Chat**: modelo configurado en `OPENROUTER_MODEL`.
 - **Embeddings**: `OPENROUTER_EMBED_MODEL` (por defecto `baai/bge-m3`, 1024 dimensiones).
 - **STT**: `POST https://openrouter.ai/api/v1/audio/transcriptions` con `WHISPER_MODEL` (por defecto `openai/whisper-large-v3-turbo`).
+- **OCR de fotos**: `OPENROUTER_VISION_MODEL` (vacío = `OPENROUTER_MODEL`; debe aceptar imágenes).
 
 El vault y la base LanceDB quedan en volúmenes locales del host. No se usa Obsidian Sync.
 
@@ -31,6 +32,7 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_VISION_MODEL=deepseek/deepseek-v4.1-flash
 OPENROUTER_EMBED_MODEL=baai/bge-m3
 EMBEDDING_DIM=1024
 WHISPER_MODEL=openai/whisper-large-v3-turbo
@@ -65,7 +67,7 @@ docker compose logs -f idearium
 El contenedor escribe en:
 
 - `/vault`: tu vault de Obsidian (notas `.md`).
-- `/data`: LanceDB, audios temporales, documentos y estado del índice.
+- `/data`: LanceDB, audios temporales, documentos, fotos y estado del índice.
 
 Por defecto se montan `./vault` y `./data`. Para usar tu vault real, crea un `.env` con:
 
@@ -86,6 +88,7 @@ docker run -d \
   -e LANCEDB_PATH=/data/lancedb \
   -e AUDIO_DIR=/data/audio \
   -e DOCUMENT_DIR=/data/documents \
+  -e IMAGES_DIR=/data/images \
   -v /home/magneto/Documents/IdeariumVault:/vault \
   -v /home/magneto/idearium/data:/data \
   --restart unless-stopped \

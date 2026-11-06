@@ -14,6 +14,7 @@ export const noteSources = [
   'telegram_text',
   'telegram_voice',
   'telegram_document',
+  'telegram_photo',
   'cli_text',
   'cli_audio',
 ] as const;
