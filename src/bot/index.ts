@@ -749,6 +749,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         await ctx.reply('Opción de nota no válida.');
         return;
       }
+      if (await rejectIfCapturePending(ctx, chatId, 'crear un palacio')) return;
+      if (await rejectIfQuizActive(ctx, chatId, 'crear un palacio')) return;
+      menuFlow.clear(chatId);
       palaceChoices.delete(chatId);
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
       await typing(ctx);
