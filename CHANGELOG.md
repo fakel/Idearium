@@ -4,6 +4,13 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
+## [Unreleased]
+
+### Añadido
+
+- Versión en inglés del README (`README.en.md`), enlazada desde el README en español.
+- Recomendación de **Ignis** para acceder al vault desde el navegador cuando Idearium se hospeda en un servidor remoto, con ejemplo mínimo de Compose y aviso de autenticación/TLS.
+
 ## [0.2.0] - 2026-11-06
 
 ### Añadido

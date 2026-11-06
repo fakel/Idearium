@@ -1,6 +1,6 @@
 # 💡 Idearium
 
-**Versión 0.2.0** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
+**Versión 0.2.0** · [English](README.en.md) · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
 
 > Captura por voz, texto, foto o documento → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
 
@@ -114,6 +114,30 @@ sudo systemctl status idearium idearium-stt
 sudo journalctl -u idearium -f
 sudo systemctl restart idearium
 ```
+
+### Acceso web al vault en un servidor remoto: Ignis
+
+Si Idearium corre en un servidor remoto (LXC, VPS o una máquina siempre encendida), el vault ya no está en tu portátil. Para leerlo y editarlo desde el navegador, recomiendo **[Ignis](https://github.com/Nystik-gh/ignis)**, que ejecuta Obsidian como aplicación web y mantiene el vault en el servidor.
+
+- Imagen Docker: `nobbe/ignis:latest`.
+- Monta la **misma carpeta** que usa Idearium (`/srv/idearium/vault` en el instalador) como vault.
+- Ignis **no trae autenticación**: publícalo solo detrás de HTTPS y basic auth (Caddy, nginx o Cloudflare Tunnel). No expongas el puerto directamente a Internet.
+- Los cambios que hagas desde Ignis los detecta el watcher de Idearium y se reindexan solos.
+
+Un ejemplo mínimo de Compose, para poner detrás de tu proxy con TLS:
+
+```yaml
+services:
+  ignis:
+    image: nobbe/ignis:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /srv/idearium/vault:/vaults/Idearium
+```
+
+No es obligatorio: Idearium funciona igual sin Ignis. Es una comodidad para servidores remotos, no un requisito.
 
 ### Docker (solo OpenRouter)
 
