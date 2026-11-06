@@ -22,7 +22,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$PROJECT_DIR/.env"
 RUNTIME_ROOT="${IDEARIUM_RUNTIME_ROOT:-/var/lib/idearium}"
 DEFAULT_VAULT="${IDEARIUM_VAULT_PATH:-/srv/idearium/vault}"
-NODE_MAJOR="${NODE_MAJOR:-22}"
+NODE_MAJOR="${NODE_MAJOR:-24}"
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-idearium}}"
 STT_MODE="${STT_MODE:-auto}"
 INSTALL_SYSTEM="${INSTALL_SYSTEM:-1}"
@@ -196,7 +196,7 @@ if [[ $INSTALL_SYSTEM -eq 1 ]]; then
   NODE_OK=0
   if command -v node >/dev/null 2>&1; then
     CURRENT_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-    if (( CURRENT_MAJOR >= 20 )); then NODE_OK=1; fi
+    if (( CURRENT_MAJOR >= 24 )); then NODE_OK=1; fi
   fi
   if [[ $NODE_OK -eq 0 ]]; then
     log "Instalando Node.js ${NODE_MAJOR}.x (NodeSource)"

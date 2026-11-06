@@ -39,7 +39,7 @@ Estudio:   /cluster, /memorize, /quiz
 
 ## Requisitos
 
-- **Node.js ≥ 20** y npm.
+- **Node.js ≥ 24** y npm.
 - **Ollama** nativo en `127.0.0.1:11434` (solo si usas chat o embeddings locales).
 - **GPU NVIDIA** recomendada para STT (funciona en CPU, más lento). Sin GPU, usa STT remoto.
 - **uv** y **Python 3.12** para el servidor de transcripción local.
@@ -71,7 +71,7 @@ sudo bash scripts/install-server.sh
 
 Qué hace:
 
-- Instala paquetes base, **Node.js 22** (si hace falta), **Ollama** y descarga `qwen2.5:7b-instruct` + `bge-m3`.
+- Instala paquetes base, **Node.js 24** (si hace falta), **Ollama** y descarga `qwen2.5:7b-instruct` + `bge-m3`.
 - Instala dependencias npm y compila (`npm ci && npm run build`).
 - Detecta GPU con `nvidia-smi`:
   - **Con GPU**: instala el STT local (`uv sync` con wheels CUDA) y crea `idearium-stt.service`.

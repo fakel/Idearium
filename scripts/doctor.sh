@@ -35,7 +35,7 @@ IMAGES_DIR="${IMAGES_DIR:-./data/images}"
 
 if command -v node >/dev/null 2>&1; then
   NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-  if (( NODE_MAJOR >= 20 )); then pass "Node $(node -p 'process.versions.node')"; else fail "Node >= 20 requerido (actual $(node -p 'process.versions.node'))"; fi
+  if (( NODE_MAJOR >= 24 )); then pass "Node $(node -p 'process.versions.node')"; else fail "Node >= 24 requerido (actual $(node -p 'process.versions.node'))"; fi
 else
   fail "Node no está instalado"
 fi
