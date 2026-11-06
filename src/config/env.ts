@@ -115,6 +115,12 @@ const envSchema = z.object({
   OPENROUTER_EMBED_MODEL: z.string().trim().min(1).default('baai/bge-m3'),
 
   RAG_TOP_K: z.coerce.number().int().positive().default(8),
+  /** Copia el curso incluido si el vault no tiene ninguna nota. */
+  SEED_ON_EMPTY: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  SEED_DIR: z.string().trim().min(1).default('./seed/aprendizaje/idearium'),
   MEMORY_MAX_NOTES: z.coerce.number().int().min(1).max(20).default(5),
   MEMORY_MAX_CHARS: z.coerce.number().int().min(1_000).max(100_000).default(24_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

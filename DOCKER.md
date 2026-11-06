@@ -79,6 +79,8 @@ IDEARIUM_DATA_DIR=/home/magneto/idearium/data
 
 También puedes exportarlas en la terminal antes de `docker compose up`.
 
+La imagen incluye el curso de 22 notas en `/app/seed/aprendizaje/idearium`. Si el vault montado no tiene ninguna nota Markdown, al arrancar se copia a `Aprendizaje/Idearium/` y se indexa. Para desactivarlo: `SEED_ON_EMPTY=false`; para usar otra carpeta: `SEED_DIR`.
+
 ### Sin Compose
 
 ```bash
@@ -91,6 +93,8 @@ docker run -d \
   -e DOCUMENT_DIR=/data/documents \
   -e IMAGES_DIR=/data/images \
   -e USAGE_FILE=/data/usage.json \
+  -e SEED_ON_EMPTY=true \
+  -e SEED_DIR=/app/seed/aprendizaje/idearium \
   -v /home/magneto/Documents/IdeariumVault:/vault \
   -v /home/magneto/idearium/data:/data \
   --restart unless-stopped \

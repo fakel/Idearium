@@ -2,6 +2,7 @@ import { loadEnv } from './config/env.js';
 import { createRuntime } from './bootstrap.js';
 import { createBot, telegramCommands } from './bot/index.js';
 import { logger } from './lib/logger.js';
+import { seedCourseIfEmpty } from './services/seed.service.js';
 import { WatcherService } from './services/watcher.service.js';
 
 async function main(): Promise<void> {
@@ -13,7 +14,36 @@ async function main(): Promise<void> {
     throw new Error('TELEGRAM_ALLOWED_USER_IDS está vacío: sin allowlist el bot no arranca.');
   }
 
+  let seeded = 0;
+  if (env.SEED_ON_EMPTY) {
+    try {
+      const result = await seedCourseIfEmpty({
+        vaultPath: env.OBSIDIAN_VAULT_PATH,
+        seedDir: env.SEED_DIR,
+        logger,
+      });
+      seeded = result.copied;
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'seed.failed',
+      );
+    }
+  }
+
   const runtime = await createRuntime(env);
+  if (seeded > 0) {
+    try {
+      const indexed = await runtime.indexer.reindexAll();
+      logger.info({ notes: seeded, ...indexed }, 'seed.indexed');
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'seed.index_failed',
+      );
+    }
+  }
+
   const bot = createBot(runtime);
   let watcher: WatcherService | undefined;
 

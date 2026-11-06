@@ -1,6 +1,6 @@
 {
   "name": "idearium",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local-first voice-to-vault AI knowledge engine",
   "main": "dist/index.js",
   "scripts": {
@@ -25,7 +25,7 @@
     "url": "git+https://github.com/fakel/Idearium.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Fares A. Akel C. <iam@fakel.lol>",
   "license": "BUSL-1.1",
   "type": "module",
   "bugs": {

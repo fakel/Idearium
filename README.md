@@ -1,6 +1,6 @@
 # 💡 Idearium
 
-**Versión 0.1.1** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
+**Versión 0.2.0** · [Changelog](CHANGELOG.md) · [Licencia BSL 1.1](LICENSE)
 
 > Captura por voz, texto, foto o documento → notas Markdown estructuradas en Obsidian → búsqueda semántica y RAG, todo local.
 
@@ -322,9 +322,15 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 133 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT)
+npm test         # 136 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
+
+### Semilla del curso
+
+El repo incluye el curso **Idearium: cómo se construyó** (22 notas) en `seed/aprendizaje/idearium/`. Si el vault no contiene **ninguna** nota Markdown, el bot copia el curso a `<vault>/Aprendizaje/Idearium/` al arrancar y lo indexa. Si ya hay notas —aunque no sean del curso— no copia ni sobrescribe nada. Para desactivarlo: `SEED_ON_EMPTY=false`.
+
+La semilla forma parte del proyecto y se distribuye bajo la licencia BSL 1.1.
 
 ## Uso
 
@@ -547,6 +553,8 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `DOCUMENT_MAX_CHARS` | `200000` | Máximo de texto extraído de un documento |
 | `IMAGES_DIR` | `./data/images` | Fotos originales para OCR |
 | `USAGE_FILE` | `./data/usage.json` | Totales agregados de coste/tokens de OpenRouter |
+| `SEED_ON_EMPTY` | `true` | Copia el curso incluido solo si el vault no tiene ninguna nota |
+| `SEED_DIR` | `./seed/aprendizaje/idearium` | Carpeta de la semilla del curso |
 | `EMBEDDING_DIM` | `1024` | Debe coincidir con el modelo de embeddings |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` o `openrouter` |
 | `OPENROUTER_EMBED_MODEL` | `baai/bge-m3` | Modelo de embeddings remoto (1024 dims) |
@@ -625,7 +633,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 
 ## Estado y roadmap
 
-**La versión actual en `main`** (v0.1.1) incluye captura de texto, voz, fotos con OCR y documentos; clasificación interactiva; menú fijo de Telegram; notas con `/notas` para listar, leer y borrar; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
+**La versión actual en `main`** (v0.2.0) incluye captura de texto, voz, fotos con OCR y documentos; clasificación interactiva; menú fijo de Telegram; notas con `/notas` para listar, leer y borrar; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
 
 Pendiente:
 
@@ -635,4 +643,8 @@ Pendiente:
 
 ## Licencia
 
-BSL 1.1 — ver [LICENSE](LICENSE).
+**Business Source License 1.1** — ver [LICENSE](LICENSE).
+
+Puedes usar, copiar, modificar y distribuir Idearium para fines **no comerciales**. El uso comercial —incluido ofrecerlo como producto o servicio de pago— requiere una licencia comercial: `iam@fakel.lol`. Cuatro años después de la publicación de cada versión, esa versión pasa a **GPL-3.0-or-later**.
+
+Las versiones `0.0.1`–`0.1.1`, ya publicadas, siguen bajo **BSL 1.1**; la BSL 1.1 aplica desde la `0.2.0`.

@@ -35,6 +35,7 @@ RUN apt-get update \
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY seed ./seed
 COPY docker/entrypoint.sh /usr/local/bin/idearium-entrypoint
 
 RUN chmod +x /usr/local/bin/idearium-entrypoint \

@@ -4,11 +4,16 @@ Todos los cambios relevantes de Idearium se documentan aquí.
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado semántico.
 
-## [Unreleased]
+## [0.2.0] - 2026-11-06
 
 ### Añadido
 
+- Semilla del curso **Idearium: cómo se construyó**: 22 notas en `seed/aprendizaje/idearium/` que se copian a `Aprendizaje/Idearium/` solo cuando el vault no contiene ninguna nota Markdown. Se puede desactivar con `SEED_ON_EMPTY=false` y cambiar de carpeta con `SEED_DIR`.
 - Seguimiento de coste y tokens de OpenRouter: cada captura guardada y cada `/query` muestran una nota con el coste de la petición y el total acumulado; `/usage` muestra el acumulado desde la primera llamada, con desglose por chat, OCR, embeddings y transcripción. Los totales se guardan en `USAGE_FILE` (`./data/usage.json` por defecto).
+
+### Cambiado
+
+- Licencia del proyecto a **Business Source License 1.1**: uso no comercial permitido; uso comercial requiere licencia separada. Cada versión pasa a GPL-3.0-or-later cuatro años después de su publicación.
 
 ## [0.1.1] - 2026-11-06
 
@@ -141,6 +146,7 @@ Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice
 - Las notas se borran con `/notas rm`; si se eliminan desde Obsidian, el watcher o `/reindex` limpia el índice.
 - No hay pruebas automáticas de llamadas reales a OpenRouter por falta de clave en el entorno de desarrollo.
 
+[0.2.0]: https://github.com/fakel/Idearium/releases/tag/v0.2.0
 [0.1.1]: https://github.com/fakel/Idearium/releases/tag/v0.1.1
 [0.1.0]: https://github.com/fakel/Idearium/releases/tag/v0.1.0
 [0.0.1]: https://github.com/fakel/Idearium/releases/tag/v0.0.1
