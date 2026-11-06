@@ -14,41 +14,52 @@ async function main(): Promise<void> {
   }
 
   const runtime = await createRuntime(env);
-  const watcher = new WatcherService({ notesDir: env.OBSIDIAN_VAULT_PATH }, runtime.indexer);
-  watcher.start();
-
   const bot = createBot(runtime);
-  await bot.init();
-  await bot.api.setMyCommands(telegramCommands).catch((error: unknown) => {
-    logger.warn(
-      { error: error instanceof Error ? error.message : String(error) },
-      'bot.set_commands_failed',
+  let watcher: WatcherService | undefined;
+
+  try {
+    await bot.init();
+    await bot.api.setMyCommands(telegramCommands).catch((error: unknown) => {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'bot.set_commands_failed',
+      );
+    });
+
+    // El watcher necesita el bot ya inicializado: si el token falla, no debe
+    // quedar un proceso vivo sin bot escuchando.
+    watcher = new WatcherService({ notesDir: env.OBSIDIAN_VAULT_PATH }, runtime.indexer);
+    watcher.start();
+
+    const remoteFirst = env.effectivePreference === 'remote_only' || env.effectivePreference === 'remote_first';
+    const remote = env.remoteProviders[0];
+    logger.info(
+      {
+        username: bot.botInfo.username,
+        provider: remoteFirst && remote ? remote.name : 'ollama',
+        model: remoteFirst && remote ? remote.model : env.OLLAMA_MODEL,
+        preference: env.effectivePreference,
+        vault: env.OBSIDIAN_VAULT_PATH,
+      },
+      'bot.started',
     );
-  });
-  const remoteFirst = env.effectivePreference === 'remote_only' || env.effectivePreference === 'remote_first';
-  const remote = env.remoteProviders[0];
-  logger.info(
-    {
-      username: bot.botInfo.username,
-      provider: remoteFirst && remote ? remote.name : 'ollama',
-      model: remoteFirst && remote ? remote.model : env.OLLAMA_MODEL,
-      preference: env.effectivePreference,
-      vault: env.OBSIDIAN_VAULT_PATH,
-    },
-    'bot.started',
-  );
 
-  const shutdown = async (signal: string): Promise<void> => {
-    logger.info({ signal }, 'app.shutdown');
-    await bot.stop();
-    await watcher.stop();
-    await runtime.close();
-    process.exit(0);
-  };
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+    const shutdown = async (signal: string): Promise<void> => {
+      logger.info({ signal }, 'app.shutdown');
+      await bot.stop();
+      await watcher?.stop();
+      await runtime.close();
+      process.exit(0);
+    };
+    process.once('SIGINT', () => void shutdown('SIGINT'));
+    process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
-  await bot.start({ drop_pending_updates: false });
+    await bot.start({ drop_pending_updates: false });
+  } catch (error) {
+    await watcher?.stop().catch(() => undefined);
+    await runtime.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 main().catch((error: unknown) => {
