@@ -48,6 +48,30 @@ Estudio:   /cluster, /memorize, /quiz
 
 Tested on Linux with an RTX 3070 (8 GB), driver 580, CUDA 13.4, Node 24, and Ollama 0.35.
 
+## Agent-assisted setup
+
+If you prefer an agent (Claude Code, Codex, Cursor, Gemini CLI, etc.) to set everything up, copy this prompt. It is designed to configure the project without changing its code.
+
+```text
+Set up Idearium on this machine and leave it ready to use.
+
+First read README.md and .env.example in full. Do not modify src/, tests/, or the repository defaults.
+
+1. Check for and install the requirements: Node.js >= 24, npm, git, and, if needed, uv/Python 3.12. Ask me before installing system packages.
+2. Run npm ci and npm run build.
+3. Ask me for the deployment mode:
+   - local: Ollama for chat/embeddings and local STT with faster-whisper (GPU or CPU);
+   - 100% OpenRouter: remote chat, embeddings, and STT with a single OPENROUTER_API_KEY.
+   Do not install Ollama, CUDA, or models if I choose OpenRouter.
+4. Ask me for the Obsidian vault, the Telegram token, and the authorized IDs. Create .env from .env.example, write the secrets there, never print them or commit them, and run chmod 600 .env.
+5. If I use Telegram, verify the token with getMe and confirm the bot only replies in private chats.
+6. Run npm test, npm run doctor, and npm run smoke. If something fails, diagnose it and fix only the configuration (not the code). Note that smoke may make real OpenRouter calls and spend a few cents.
+7. If this is a server, set up startup with systemd (scripts/install-server.sh) or Docker only if I ask; do not do it by default.
+8. When done, summarize: chosen mode, models, vault and data paths, start/stop commands, doctor/smoke results, and any pending step.
+
+Do not commit, push, or deploy to production without my permission. If something is missing or ambiguous, ask me; do not invent keys or paths.
+```
+
 ## Installation
 
 ```bash

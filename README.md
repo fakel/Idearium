@@ -48,6 +48,30 @@ Estudio:   /cluster, /memorize, /quiz
 
 Probado en Linux con RTX 3070 (8 GB), driver 580, CUDA 13.4, Node 24 y Ollama 0.35.
 
+## Configuración asistida por un agente
+
+Si prefieres que un agente (Claude Code, Codex, Cursor, Gemini CLI, etc.) prepare todo, copia este prompt. Está pensado para configurar el proyecto sin cambiar el código.
+
+```text
+Configura Idearium en esta máquina y déjalo listo para usar.
+
+Primero lee README.md y .env.example completos. No modifiques src/, tests/ ni la configuración por defecto del repo.
+
+1. Comprueba e instala los requisitos: Node.js >= 24, npm, git y, si hace falta, uv/Python 3.12. Pregúntame antes de instalar paquetes del sistema.
+2. Ejecuta npm ci y npm run build.
+3. Pregúntame el modo de despliegue:
+   - local: Ollama para chat/embeddings y STT local con faster-whisper (GPU o CPU);
+   - 100 % OpenRouter: chat, embeddings y STT remotos con una sola OPENROUTER_API_KEY.
+   No instales Ollama, CUDA ni modelos si elijo OpenRouter.
+4. Pregúntame el vault de Obsidian, el token de Telegram y los IDs autorizados. Crea .env desde .env.example, escribe ahí los secretos, nunca los imprimas ni los subas al repo y aplica chmod 600 .env.
+5. Si uso Telegram, comprueba el token con getMe y que el bot solo responda en chats privados.
+6. Ejecuta npm test, npm run doctor y npm run smoke. Si algo falla, diagnostica y corrige solo la configuración (no el código). Ten en cuenta que smoke puede hacer llamadas reales a OpenRouter y gastar céntimos.
+7. Si es un servidor, configura el arranque con systemd (scripts/install-server.sh) o Docker solo si te lo pido; no lo hagas por defecto.
+8. Al terminar, resume: modo elegido, modelos, rutas del vault y de datos, comandos para arrancar/parar, resultados de doctor/smoke y cualquier paso pendiente.
+
+No hagas commit, push ni despliegues a producción sin mi permiso. Si falta un dato o una decisión, pregúntame; no inventes claves ni rutas.
+```
+
 ## Instalación
 
 ```bash
