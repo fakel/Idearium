@@ -5,10 +5,12 @@ import { truncate } from '../lib/text.js';
 import type { IngestResult, PreparedIngest } from '../controllers/ingest.controller.js';
 import { PendingCaptureStore, type PendingCapture } from '../services/pending.service.js';
 import { PendingOcrStore, type PendingOcr } from '../services/pending-ocr.service.js';
+import { PendingCardStore, type PendingCardBatch } from '../services/pending-card.service.js';
 import { AwaitingActionStore } from '../services/menu-flow.service.js';
 import type { MemorizeResult } from '../services/memorize.service.js';
 import { isSupportedDocumentExtension, supportedDocumentExtensions } from '../services/document.service.js';
 import { categoryOptions, normalizeCategory, normalizeFolder, type NoteCategory } from '../lib/classification.js';
+import { reviewGrades, type ReviewGrade } from '../lib/sm2.js';
 import { noteCategories } from '../schemas/noteDigest.schema.js';
 import { logger, type Logger } from '../lib/logger.js';
 import { formatNoteList } from '../lib/note-list.js';
@@ -31,6 +33,8 @@ const menuButtons = {
   palaces: '🏛️ Palacios',
   memorize: '🧠 Memorizar',
   quiz: '🎯 Quiz',
+  cards: '🃏 Tarjetas',
+  review: '📖 Repasar',
   reindex: '🔄 Reindexar',
   help: '❓ Ayuda',
 } as const;
@@ -59,6 +63,11 @@ const helpText = [
   '/palacio rm <número|nota|tema> — borrar un palacio y sus enlaces',
   '/quiz <número|tema|varias notas> — quiz interactivo multi-nota',
   '/quiz stop — terminar el quiz actual',
+  '/tarjeta <nota> — crear tarjetas de estudio desde una nota',
+  '/tarjetas [texto|#etiqueta] — listar tarjetas; /tarjetas <id> para ver una',
+  '/tarjeta rm|suspender|reanudar|editar <id> — administrar tarjetas',
+  '/tarjeta stats — estadísticas de la caja',
+  '/repasar [etiqueta] — repasar tarjetas vencidas; /repasar stop para salir',
   '/usage — coste y tokens acumulados de OpenRouter',
   '/cancelar — descartar la captura pendiente',
   '/start — esta ayuda y estado del sistema',
@@ -72,10 +81,15 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   const bot = new Bot(runtime.env.TELEGRAM_BOT_TOKEN);
   const pending = new PendingCaptureStore();
   const pendingOcr = new PendingOcrStore();
+  const pendingCards = new PendingCardStore();
   const menuFlow = new AwaitingActionStore();
   const palaceChoices = new Map<
     number,
     { notes: Array<{ path: string; title: string }>; expiresAt: number }
+  >();
+  const savedCardEdits = new Map<
+    number,
+    { id: string; stage: 'question' | 'answer'; question?: string }
   >();
   const palaceChoiceTtlMs = 10 * 60 * 1000;
   const allowed = new Set(runtime.env.TELEGRAM_ALLOWED_USER_IDS.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
@@ -129,6 +143,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     try {
       if (await rejectIfCapturePending(ctx, ctx.chat.id, 'usar /remoto')) return;
       if (await rejectIfQuizActive(ctx, ctx.chat.id, 'usar /remoto')) return;
+      if (await rejectIfReviewActive(ctx, ctx.chat.id, 'usar /remoto')) return;
       const prepared = await runtime.ingest.prepareText(text, {
         source: 'telegram_text',
         remote: true,
@@ -141,10 +156,12 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
 
   bot.command('cancelar', async (ctx) => {
     const clearedOcr = pendingOcr.clear(ctx.chat.id);
+    const clearedCards = pendingCards.clear(ctx.chat.id);
+    const clearedEdit = savedCardEdits.delete(ctx.chat.id);
     const cleared = pending.clear(ctx.chat.id);
     await reply(
       ctx,
-      clearedOcr || cleared
+      clearedOcr || clearedCards || clearedEdit || cleared
         ? 'Captura cancelada. No se guardó la nota.'
         : 'No hay una captura pendiente.',
     );
@@ -156,6 +173,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     const topic = ctx.match.trim();
     if (!topic) return reply(ctx, 'Uso: /cluster <tema>');
     if (await rejectIfQuizActive(ctx, ctx.chat.id, 'usar /cluster')) return;
+    if (await rejectIfReviewActive(ctx, ctx.chat.id, 'usar /cluster')) return;
     await typing(ctx);
     try {
       const result = await runtime.cluster.run(topic);
@@ -186,17 +204,27 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
 
   bot.command('quiz', (ctx) => runQuiz(ctx, ctx.match.trim()));
 
+  bot.command('repasar', (ctx) => runReview(ctx, ctx.match.trim()));
+
+  bot.command('tarjeta', (ctx) => runCard(ctx, ctx.match.trim()));
+
+  bot.command('tarjetas', (ctx) => runCards(ctx, ctx.match.trim()));
+
   async function sendHelp(ctx: Context): Promise<void> {
     const count = await runtime.vector.count().catch(() => 0);
     const usage = await runtime.usage.snapshot();
+    const cardStats = ctx.chat?.id
+      ? await runtime.flashcards.stats(ctx.chat.id).catch(() => undefined)
+      : undefined;
     const text = [
       helpText,
       '',
       `Proveedor: ${runtime.router.status()}`,
       `Vault: ${runtime.env.OBSIDIAN_VAULT_PATH}`,
       `Notas indexadas (chunks): ${count}`,
+      cardStats ? `Tarjetas: ${cardStats.total} · vencidas: ${cardStats.due}` : '',
       `Coste acumulado (OpenRouter): ${formatUsd(usage.costUsd)}`,
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     await ctx.reply(text.slice(0, maxTelegramChars), { reply_markup: mainMenuKeyboard() });
   }
 
@@ -210,12 +238,22 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     return true;
   }
 
+  async function rejectIfReviewActive(
+    ctx: Context,
+    chatId: number,
+    action: string,
+  ): Promise<boolean> {
+    if (!runtime.review.has(chatId)) return false;
+    await reply(ctx, `Hay un repaso activo. Termínalo con /repasar stop antes de ${action}.`);
+    return true;
+  }
+
   async function rejectIfCapturePending(
     ctx: Context,
     chatId: number,
     action: string,
   ): Promise<boolean> {
-    if (!pending.has(chatId) && !pendingOcr.has(chatId)) return false;
+    if (!pending.has(chatId) && !pendingOcr.has(chatId) && !pendingCards.has(chatId) && !savedCardEdits.has(chatId)) return false;
     await reply(ctx, `Tienes una captura pendiente. Termínala o usa /cancelar antes de ${action}.`);
     return true;
   }
@@ -236,6 +274,14 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       await reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de usar otra acción.');
       return;
     }
+    if (runtime.review.has(chatId) && action !== 'review') {
+      await reply(ctx, 'Hay un repaso activo. Termínalo con /repasar stop antes de usar otra acción.');
+      return;
+    }
+    if (pendingCards.has(chatId) && action !== 'cards') {
+      await reply(ctx, 'Tienes tarjetas en vista previa. Guárdalas, edítalas o usa /cancelar.');
+      return;
+    }
 
     switch (action) {
       case 'query':
@@ -244,6 +290,12 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         return;
       case 'notes':
         await runNotes(ctx, '');
+        return;
+      case 'cards':
+        await runCards(ctx, '');
+        return;
+      case 'review':
+        await runReview(ctx, '');
         return;
       case 'palaces':
         await runPalace(ctx, '');
@@ -275,6 +327,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       }
       const chatId = ctx.chat?.id;
       if (chatId && (await rejectIfQuizActive(ctx, chatId, 'borrar notas'))) return;
+      if (chatId && (await rejectIfReviewActive(ctx, chatId, 'borrar notas'))) return;
       await typing(ctx);
       try {
         const deleted = await runtime.memorize.deleteNote(target);
@@ -371,6 +424,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   async function runReindex(ctx: Context): Promise<void> {
     const chatId = ctx.chat?.id;
     if (chatId && (await rejectIfQuizActive(ctx, chatId, 'reindexar'))) return;
+    if (chatId && (await rejectIfReviewActive(ctx, chatId, 'reindexar'))) return;
     await reply(ctx, 'Reindexando el vault… esto puede tardar.');
     try {
       const result = await runtime.indexer.reindexAll();
@@ -393,6 +447,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     const chatId = ctx.chat?.id;
     if (!chatId) return;
     if (await rejectIfQuizActive(ctx, chatId, 'crear un palacio')) return;
+    if (await rejectIfReviewActive(ctx, chatId, 'crear un palacio')) return;
     if (await rejectIfCapturePending(ctx, chatId, 'crear un palacio')) return;
 
     await typing(ctx);
@@ -437,6 +492,7 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         }
         const chatId = ctx.chat?.id;
         if (chatId && (await rejectIfQuizActive(ctx, chatId, 'borrar un palacio'))) return;
+        if (chatId && (await rejectIfReviewActive(ctx, chatId, 'borrar un palacio'))) return;
         const index = parsePalaceIndex(requested);
         let targetPath = requested;
         if (index !== null) {
@@ -509,6 +565,200 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     }
   }
 
+  async function runCard(ctx: Context, target: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+    const command = parseCardCommand(target);
+    if (command.verb === 'empty') {
+      return reply(
+        ctx,
+        'Uso: /tarjeta <número|título>\nTambién: /tarjeta stats | rm <id> | suspender <id> | reanudar <id> | editar <id>',
+      );
+    }
+
+    if (command.verb === 'stats') {
+      const stats = await runtime.flashcards.stats(chatId);
+      return replyLong(ctx, formatCardStats(stats));
+    }
+    if (command.verb === 'rm' || command.verb === 'suspender' || command.verb === 'reanudar' || command.verb === 'editar') {
+      const verb = command.verb;
+      const argument = command.argument;
+      if (!argument) return reply(ctx, `Uso: /tarjeta ${verb} <id>`);
+      try {
+        if (verb === 'rm') {
+          if (!(await runtime.flashcards.remove(chatId, argument))) {
+            return reply(ctx, `No encontré la tarjeta ${argument}.`);
+          }
+          savedCardEdits.delete(chatId);
+          return reply(ctx, `🗑️ Tarjeta ${argument} eliminada.`);
+        }
+        if (verb === 'editar') {
+          const card = await runtime.flashcards.get(chatId, argument);
+          if (!card) return reply(ctx, `No encontré la tarjeta ${argument}.`);
+          savedCardEdits.set(chatId, { id: argument, stage: 'question' });
+          return reply(
+            ctx,
+            `✏️ Editando ${argument}. Envía la nueva pregunta o /cancelar.\n\nActual: ${truncate(card.question, 300)}`,
+          );
+        }
+        const card = await runtime.flashcards.setSuspended(chatId, argument, verb === 'suspender');
+        return reply(
+          ctx,
+          verb === 'suspender'
+            ? `⏸️ Tarjeta ${card.id} suspendida; no aparecerá en los repasos.`
+            : `▶️ Tarjeta ${card.id} reanudada.`,
+        );
+      } catch (error) {
+        return replyError(ctx, error);
+      }
+    }
+
+    if (await rejectIfQuizActive(ctx, chatId, 'crear tarjetas')) return;
+    if (await rejectIfReviewActive(ctx, chatId, 'crear tarjetas')) return;
+    if (await rejectIfCapturePending(ctx, chatId, 'crear tarjetas')) return;
+    if (pendingCards.has(chatId)) {
+      return reply(ctx, 'Tienes tarjetas en vista previa. Guárdalas, edítalas o usa /cancelar.');
+    }
+
+    await typing(ctx);
+    try {
+      const note = await runtime.selector.resolveExplicit(command.target);
+      if (!note) {
+        return reply(
+          ctx,
+          `No encontré una nota exacta para "${target}". Usa el número (/tarjeta 0007) o el título completo; /notas te ayuda a buscarla.`,
+        );
+      }
+      const [context] = await runtime.selector.load([note]);
+      if (!context) return reply(ctx, `No pude leer la nota [[${note.title}]].`);
+      const cards = await runtime.flashcardGenerator.generate(context);
+      const batch = pendingCards.create(chatId, cards, {
+        note: note.relativePath,
+        title: note.title,
+      });
+      await sendCardPreview(ctx, batch);
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  }
+
+  async function runCards(ctx: Context, raw: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+    const query = raw.trim();
+    if (/^[a-f0-9]{8}$/i.test(query)) {
+      const card = await runtime.flashcards.get(chatId, query.toLowerCase());
+      if (!card) return reply(ctx, `No encontré la tarjeta ${query}.`);
+      return replyLong(ctx, formatCardDetail(card));
+    }
+
+    const cards = await runtime.flashcards.list(chatId, query || undefined);
+    if (cards.length === 0) {
+      return reply(
+        ctx,
+        query
+          ? `No hay tarjetas que coincidan con "${query}".`
+          : 'Tu caja está vacía. Crea tarjetas desde una nota con /tarjeta <nota>.',
+      );
+    }
+    await replyLong(ctx, formatCardList(cards, query));
+  }
+
+  function formatCardDate(iso: string): string {
+    return new Intl.DateTimeFormat('es-PE', {
+      timeZone: runtime.env.SR_TIMEZONE,
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(iso));
+  }
+
+  function formatCardList(cards: Awaited<ReturnType<typeof runtime.flashcards.list>>, query: string): string {
+    const lines = [
+      `🃏 Tarjetas${query ? ` para "${query}"` : ''} (${cards.length}):`,
+      '',
+      ...cards.slice(0, 40).map((card) => {
+        const status = card.suspended ? ' ⏸️' : card.leech ? ' 🩸' : '';
+        return `${card.id}${status} — ${truncate(card.question, 90)}\n   vence: ${formatCardDate(card.dueAt)}${card.tags.length ? ` · ${card.tags.map((tag) => `#${tag}`).join(' ')}` : ''}`;
+      }),
+    ];
+    if (cards.length > 40) lines.push('', `Mostrando 40 de ${cards.length}.`);
+    lines.push('', 'Detalle: /tarjetas <id> · Repasar: /repasar');
+    return lines.join('\n');
+  }
+
+  function formatCardDetail(card: Awaited<ReturnType<typeof runtime.flashcards.get>> & {}): string {
+    if (!card) return 'No encontré la tarjeta.';
+    return [
+      `🃏 ${card.id}${card.suspended ? ' · ⏸️ suspendida' : ''}${card.leech ? ' · 🩸 leech' : ''}`,
+      '',
+      `P: ${card.question}`,
+      `R: ${card.answer}`,
+      '',
+      `Fuente: [[${card.sourceTitle}]] (${card.sourceNote})`,
+      `Etiquetas: ${card.tags.length ? card.tags.map((tag) => `#${tag}`).join(' ') : '_ninguna_'}`,
+      `Vence: ${formatCardDate(card.dueAt)} · intervalo: ${Math.round(card.intervalMinutes / 60)} h`,
+      `Facilidad: ${card.ease.toFixed(2)} · repeticiones: ${card.repetitions} · fallos: ${card.lapses}`,
+    ].join('\n');
+  }
+
+  function formatCardStats(stats: Awaited<ReturnType<typeof runtime.flashcards.stats>>): string {
+    return [
+      '📊 Tu caja de repaso',
+      '',
+      `Total: ${stats.total} · activas: ${stats.active} · vencidas: ${stats.due} · suspendidas: ${stats.suspended}`,
+      `Hoy: ${stats.todayReviews}/${runtime.env.SR_MAX_REVIEWS_PER_DAY} repasos`,
+      `Últimos 30 días: ${stats.reviewsLast30Days} repasos${stats.accuracyLast30Days === undefined ? '' : ` · ${(stats.accuracyLast30Days * 100).toFixed(0)}% bien/fácil`}`,
+      `Racha: ${stats.streak} día(s) · leeches: ${stats.leeches}`,
+      stats.nextDueAt ? `Próxima: ${formatCardDate(stats.nextDueAt)}` : 'No hay repasos futuros.',
+      Object.keys(stats.byTag).length
+        ? `Etiquetas: ${Object.entries(stats.byTag).map(([tag, count]) => `#${tag} (${count})`).join(', ')}`
+        : 'Sin etiquetas.',
+    ].join('\n');
+  }
+
+  async function sendCardPreview(ctx: Context, batch: PendingCardBatch): Promise<void> {
+    const lines = [
+      `🃏 ${batch.cards.length} tarjetas propuestas desde [[${batch.sourceTitle}]]`,
+      '',
+    ];
+    batch.cards.forEach((card, index) => {
+      lines.push(`${index + 1}. ${truncate(card.question, 300)}`);
+      lines.push(`   ${truncate(card.answer, 400)}`);
+    });
+    lines.push('', 'Guárdalas o edita una antes de continuar.');
+    const keyboard = new InlineKeyboard();
+    batch.cards.forEach((_, index) => {
+      if (index > 0 && index % 3 === 0) keyboard.row();
+      keyboard.text(`✏️ ${index + 1}`, `fcb:edit:${index}`);
+    });
+    keyboard.row().text('✅ Guardar todas', 'fcb:save').text('❌ Cancelar', 'fcb:cancel');
+    await replyKeyboard(ctx, truncate(lines.join('\n'), maxTelegramChars - 100), keyboard);
+  }
+
+  async function savePendingCards(ctx: Context, chatId: number): Promise<void> {
+    const batch = pendingCards.get(chatId);
+    if (!batch) return reply(ctx, 'La vista previa caducó. Vuelve a crear las tarjetas con /tarjeta.');
+    try {
+      const saved = await runtime.flashcards.addMany(
+        chatId,
+        batch.cards.map((card) => ({
+          question: card.question,
+          answer: card.answer,
+          tags: card.tags,
+          sourceNote: batch.sourceNote,
+          sourceTitle: batch.sourceTitle,
+        })),
+      );
+      pendingCards.clear(chatId);
+      await reply(
+        ctx,
+        `✅ Guardé ${saved.length} tarjeta(s) de [[${batch.sourceTitle}]].\nUsa /repasar cuando quieras empezar.`,
+      );
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  }
+
   async function runQuiz(ctx: Context, topic: string): Promise<void> {
     const chatId = ctx.chat?.id;
     if (!chatId) return;
@@ -519,6 +769,9 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     }
     if (topic.toLowerCase() !== 'stop' && runtime.quiz.hasSession(chatId)) {
       return reply(ctx, 'Ya hay un quiz activo. Termínalo con /quiz stop antes de empezar otro.');
+    }
+    if (topic.toLowerCase() !== 'stop' && runtime.review.has(chatId)) {
+      return reply(ctx, 'Hay un repaso activo. Termínalo con /repasar stop antes de empezar un quiz.');
     }
     if (topic.toLowerCase() === 'stop') {
       const stopped = runtime.quiz.stop(chatId);
@@ -534,13 +787,145 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     }
   }
 
+  async function runReview(ctx: Context, raw: string): Promise<void> {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+    if (raw.toLowerCase() === 'stop') {
+      const stopped = runtime.review.stop(chatId);
+      return reply(ctx, stopped ? 'Repaso terminado.' : 'No hay un repaso activo.');
+    }
+    if (await rejectIfQuizActive(ctx, chatId, 'repasar')) return;
+    if (await rejectIfCapturePending(ctx, chatId, 'repasar')) return;
+    if (pendingCards.has(chatId)) {
+      return reply(ctx, 'Guarda o cancela las tarjetas en vista previa antes de repasar.');
+    }
+
+    const tag = raw.trim().replace(/^#/, '') || undefined;
+    await typing(ctx);
+    try {
+      const started = await runtime.review.start(chatId, { tag });
+      await replyKeyboard(
+        ctx,
+        `${started.intro}\n\n${started.card.question}`,
+        reviewQuestionKeyboard(),
+      );
+    } catch (error) {
+      await replyError(ctx, error);
+    }
+  }
+
+  function reviewQuestionKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('👁️ Mostrar respuesta', 'rv:show')
+      .row()
+      .text('⏹️ Terminar', 'rv:stop');
+  }
+
+  function reviewAnswerKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('🔁 Otra vez', 'rv:rate:again')
+      .text('😣 Difícil', 'rv:rate:hard')
+      .row()
+      .text('🙂 Bien', 'rv:rate:good')
+      .text('😎 Fácil', 'rv:rate:easy')
+      .row()
+      .text('↩️ Deshacer', 'rv:undo')
+      .text('⏹️ Terminar', 'rv:stop');
+  }
+
+  function reviewDoneKeyboard(): InlineKeyboard {
+    return new InlineKeyboard().text('↩️ Deshacer último', 'rv:undo').row().text('⏹️ Cerrar', 'rv:stop');
+  }
+
+  function reviewGradeLabel(grade: ReviewGrade): string {
+    return { again: 'Otra vez', hard: 'Difícil', good: 'Bien', easy: 'Fácil' }[grade];
+  }
+
+  async function handleReviewCallback(ctx: Context, chatId: number, data: string): Promise<void> {
+    if (data === 'rv:stop') {
+      runtime.review.stop(chatId);
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      await ctx.reply('Repaso terminado.');
+      return;
+    }
+    if (data === 'rv:undo') {
+      const undone = await runtime.review.undo(chatId);
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      if (!undone) {
+        await ctx.reply('No hay una calificación que deshacer.');
+        return;
+      }
+      await sendReviewQuestion(ctx, undone.card, '↩️ Última calificación deshecha.');
+      return;
+    }
+    if (data === 'rv:show') {
+      const revealed = runtime.review.reveal(chatId);
+      if (!revealed) {
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('El repaso ya no está activo. Usa /repasar para empezar otro.');
+        return;
+      }
+      const text = `🃏 ${revealed.card.question}\n\n✅ ${revealed.answer}`;
+      await ctx
+        .editMessageText(text.slice(0, maxTelegramChars), { reply_markup: reviewAnswerKeyboard() })
+        .catch(async () => {
+          await replyKeyboard(ctx, text, reviewAnswerKeyboard());
+        });
+      return;
+    }
+    if (!data.startsWith('rv:rate:')) return;
+    const grade = data.slice('rv:rate:'.length) as ReviewGrade;
+    if (!reviewGrades.includes(grade)) return;
+
+    try {
+      const result = await runtime.review.rate(chatId, grade);
+      if (!result) {
+        await ctx.reply('El repaso ya no está activo. Usa /repasar para empezar otro.');
+        return;
+      }
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+      if (result.finished) {
+        await replyKeyboard(ctx, result.summary ?? 'Repaso terminado.', reviewDoneKeyboard());
+        return;
+      }
+      await ctx.reply(`Calificada: ${reviewGradeLabel(grade)}. Quedan ${result.remaining}.`);
+      if (result.next) await sendReviewQuestion(ctx, result.next);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === 'daily_limit') {
+        runtime.review.markFinished(chatId);
+        const summary = runtime.review.summary(chatId) ?? '';
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await replyKeyboard(
+          ctx,
+          `${error instanceof Error ? error.message : String(error)}\n\n${summary}`.trim(),
+          reviewDoneKeyboard(),
+        );
+        return;
+      }
+      await replyError(ctx, error);
+    }
+  }
+
+  async function sendReviewQuestion(
+    ctx: Context,
+    card: { question: string },
+    prefix = '',
+  ): Promise<void> {
+    const text = [prefix, prefix ? '' : '', `🃏 ${card.question}`].filter(Boolean).join('\n');
+    await replyKeyboard(ctx, text, reviewQuestionKeyboard());
+  }
+
   bot.on('message:voice', async (ctx) => {
     menuFlow.clear(ctx.chat.id);
-    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id) || pendingCards.has(ctx.chat.id)) {
       return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
     if (runtime.quiz.hasSession(ctx.chat.id)) {
       return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar una nota de voz.');
+    }
+    if (runtime.review.has(ctx.chat.id)) {
+      return reply(ctx, 'Hay un repaso activo. Termínalo con /repasar stop antes de enviar una nota de voz.');
     }
 
     await typing(ctx);
@@ -563,11 +948,14 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (photo.file_size && photo.file_size > maxDocumentBytes) {
       return reply(ctx, 'La foto supera el límite de 20 MB de Telegram.');
     }
-    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id) || pendingCards.has(ctx.chat.id)) {
       return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
     if (runtime.quiz.hasSession(ctx.chat.id)) {
       return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar una foto.');
+    }
+    if (runtime.review.has(ctx.chat.id)) {
+      return reply(ctx, 'Hay un repaso activo. Termínalo con /repasar stop antes de enviar una foto.');
     }
 
     await typing(ctx);
@@ -599,11 +987,14 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (document.file_size && document.file_size > maxDocumentBytes) {
       return reply(ctx, 'El documento supera el límite de 20 MB de Telegram.');
     }
-    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id)) {
+    if (pending.has(ctx.chat.id) || pendingOcr.has(ctx.chat.id) || pendingCards.has(ctx.chat.id)) {
       return reply(ctx, 'Tienes una captura pendiente. Termínala o usa /cancelar.');
     }
     if (runtime.quiz.hasSession(ctx.chat.id)) {
       return reply(ctx, 'Hay un quiz activo. Termínalo con /quiz stop antes de enviar un documento.');
+    }
+    if (runtime.review.has(ctx.chat.id)) {
+      return reply(ctx, 'Hay un repaso activo. Termínalo con /repasar stop antes de enviar un documento.');
     }
 
     await typing(ctx);
@@ -640,6 +1031,61 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
       if (awaited === 'query') await runQuery(ctx, text);
       else if (awaited === 'memorize') await runMemorize(ctx, text);
       else await runQuiz(ctx, text);
+      return;
+    }
+
+    if (runtime.review.has(ctx.chat.id)) {
+      await reply(ctx, 'Hay un repaso activo. Usa los botones del mensaje o /repasar stop para terminar.');
+      return;
+    }
+
+    const savedEdit = savedCardEdits.get(ctx.chat.id);
+    if (savedEdit) {
+      if (savedEdit.stage === 'question') {
+        if (!text || text.length > 500) {
+          await reply(ctx, 'La pregunta no puede estar vacía ni superar 500 caracteres. Inténtalo de nuevo.');
+          return;
+        }
+        savedEdit.question = text;
+        savedEdit.stage = 'answer';
+        await reply(ctx, `Ahora envía la respuesta de la tarjeta ${savedEdit.id}.`);
+        return;
+      }
+      try {
+        const card = await runtime.flashcards.update(ctx.chat.id, savedEdit.id, {
+          question: savedEdit.question,
+          answer: text,
+        });
+        savedCardEdits.delete(ctx.chat.id);
+        await reply(ctx, `✅ Tarjeta ${card.id} actualizada.`);
+      } catch (error) {
+        await replyError(ctx, error);
+      }
+      return;
+    }
+
+    const cardBatch = pendingCards.get(ctx.chat.id);
+    if (cardBatch) {
+      if (cardBatch.edit?.stage === 'question') {
+        const edit = pendingCards.submitQuestion(ctx.chat.id, text);
+        await reply(
+          ctx,
+          edit
+            ? `Ahora envía la respuesta de la tarjeta ${edit.index + 1}.`
+            : 'La pregunta no puede estar vacía ni superar 500 caracteres. Inténtalo de nuevo.',
+        );
+        return;
+      }
+      if (cardBatch.edit?.stage === 'answer') {
+        const updated = pendingCards.submitAnswer(ctx.chat.id, text);
+        if (!updated) {
+          await reply(ctx, 'La respuesta no puede estar vacía ni superar 2000 caracteres. Inténtalo de nuevo.');
+          return;
+        }
+        await sendCardPreview(ctx, updated);
+        return;
+      }
+      await reply(ctx, 'Tienes tarjetas en vista previa. Usa los botones para guardarlas, editarlas o cancelarlas.');
       return;
     }
 
@@ -713,6 +1159,11 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     if (!chatId) return;
     const data = ctx.callbackQuery.data;
     await ctx.answerCallbackQuery().catch(() => undefined);
+
+    if (data.startsWith('rv:')) {
+      await handleReviewCallback(ctx, chatId, data);
+      return;
+    }
 
     if (data.startsWith('ocr:')) {
       const waiting = pendingOcr.get(chatId);
@@ -808,6 +1259,38 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
         await sendPalaceCreated(ctx, result);
       } catch (error) {
         await replyError(ctx, error);
+      }
+      return;
+    }
+
+    if (data.startsWith('fcb:')) {
+      const batch = pendingCards.get(chatId);
+      if (!batch) {
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('La vista previa de tarjetas caducó. Usa /tarjeta para crear otra.');
+        return;
+      }
+      if (data === 'fcb:save') {
+        await savePendingCards(ctx, chatId);
+        return;
+      }
+      if (data === 'fcb:cancel') {
+        pendingCards.clear(chatId);
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply('Tarjetas descartadas. No se guardó nada.');
+        return;
+      }
+      if (data.startsWith('fcb:edit:')) {
+        const index = Number(data.slice('fcb:edit:'.length));
+        const edit = pendingCards.beginEdit(chatId, index);
+        if (!edit) {
+          await ctx.reply('Tarjeta no válida.');
+          return;
+        }
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+        await ctx.reply(
+          `✏️ Tarjeta ${index + 1}. Envía la nueva pregunta o /cancelar.\n\nActual: ${truncate(edit.question, 300)}`,
+        );
       }
       return;
     }
@@ -986,11 +1469,34 @@ function mainMenuKeyboard(): Keyboard {
     .text(menuButtons.memorize)
     .row()
     .text(menuButtons.quiz)
+    .text(menuButtons.cards)
+    .row()
+    .text(menuButtons.review)
     .text(menuButtons.reindex)
     .row()
     .text(menuButtons.help)
     .resized()
     .persistent();
+}
+
+export type CardCommandVerb = 'empty' | 'stats' | 'generate' | 'rm' | 'suspender' | 'reanudar' | 'editar';
+
+export interface CardCommand {
+  verb: CardCommandVerb;
+  argument: string;
+  target: string;
+}
+
+export function parseCardCommand(input: string): CardCommand {
+  const trimmed = input.trim();
+  if (!trimmed) return { verb: 'empty', argument: '', target: '' };
+  const [first, ...rest] = trimmed.split(/\s+/);
+  const argument = rest.join(' ').trim();
+  if (first === 'stats' && !argument) return { verb: 'stats', argument: '', target: '' };
+  if (['rm', 'suspender', 'reanudar', 'editar'].includes(first)) {
+    return { verb: first as CardCommandVerb, argument, target: '' };
+  }
+  return { verb: 'generate', argument: '', target: trimmed };
 }
 
 export function menuActionForText(text: string): MenuButtonAction | null {
@@ -1083,6 +1589,9 @@ export const telegramCommands = [
   { command: 'palacio', description: 'Ver o borrar palacios' },
   { command: 'memorize', description: 'Crear un palacio de una nota' },
   { command: 'quiz', description: 'Empezar o parar un quiz' },
+  { command: 'tarjeta', description: 'Crear o administrar tarjetas' },
+  { command: 'tarjetas', description: 'Listar tarjetas y estadísticas' },
+  { command: 'repasar', description: 'Repasar tarjetas vencidas' },
   { command: 'cluster', description: 'Crear un estudio por tema' },
   { command: 'reindex', description: 'Reindexar el vault' },
   { command: 'remoto', description: 'Capturar usando el proveedor remoto' },

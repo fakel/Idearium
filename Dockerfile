@@ -24,7 +24,8 @@ ENV NODE_ENV=production \
     LLM_PREFERENCE=remote_only \
     EMBEDDING_PROVIDER=openrouter \
     WHISPER_API_URL=https://openrouter.ai/api \
-    USAGE_FILE=/data/usage.json
+    USAGE_FILE=/data/usage.json \
+    FLASHCARD_FILE=/data/flashcards.json
 
 WORKDIR /app
 

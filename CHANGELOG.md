@@ -8,6 +8,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 
+- Repaso espaciado: `/tarjeta <nota>` genera tarjetas con vista previa y edición, `/tarjetas` las lista y administra, `/repasar` abre una sesión con calificaciones SM-2 simplificado (Otra vez/Difícil/Bien/Fácil), deshacer y resumen, y avisos programados con zona horaria, gracia y límite diario. Estado persistente en `FLASHCARD_FILE`.
 - Versión en inglés del README (`README.en.md`), enlazada desde el README en español.
 - Recomendación de **Ignis** para acceder al vault desde el navegador cuando Idearium se hospeda en un servidor remoto, con ejemplo mínimo de Compose y aviso de autenticación/TLS.
 - Prompt de configuración asistida por un agente en ambos READMEs, para que el agente prepare requisitos, `.env`, pruebas y arranque sin modificar el código.

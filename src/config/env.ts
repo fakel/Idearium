@@ -123,6 +123,51 @@ const envSchema = z.object({
   SEED_DIR: z.string().trim().min(1).default('./seed/aprendizaje/idearium'),
   MEMORY_MAX_NOTES: z.coerce.number().int().min(1).max(20).default(5),
   MEMORY_MAX_CHARS: z.coerce.number().int().min(1_000).max(100_000).default(24_000),
+
+  /** Tarjetas de estudio y repaso espaciado; fuera del vault. */
+  FLASHCARD_FILE: z.string().trim().min(1).default('./data/flashcards.json'),
+  SR_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  SR_TIMEZONE: z
+    .string()
+    .trim()
+    .default('America/Lima')
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'SR_TIMEZONE debe ser una zona IANA válida, por ejemplo America/Lima'),
+  SR_NOTIFY_TIMES: z
+    .string()
+    .default('08:30,20:30')
+    .transform((value, ctx) => {
+      const times = csv(value);
+      if (times.length === 0) {
+        ctx.addIssue({ code: 'custom', message: 'SR_NOTIFY_TIMES no puede estar vacío' });
+        return z.NEVER;
+      }
+      for (const time of times) {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `SR_NOTIFY_TIMES contiene una hora inválida: ${time}. Usa HH:MM.`,
+          });
+          return z.NEVER;
+        }
+      }
+      return [...new Set(times)].sort();
+    }),
+  SR_NOTIFY_GRACE_MINUTES: z.coerce.number().int().min(0).max(1_440).default(60),
+  SR_CARDS_PER_NOTE: z.coerce.number().int().min(1).max(10).default(5),
+  SR_MAX_REVIEWS_PER_DAY: z.coerce.number().int().min(1).max(500).default(40),
+  SR_MAX_DUE_PER_SESSION: z.coerce.number().int().min(1).max(100).default(20),
+  SR_LEECH_THRESHOLD: z.coerce.number().int().min(1).max(50).default(6),
+
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

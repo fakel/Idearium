@@ -370,7 +370,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 138 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla)
+npm test         # 171 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla, repaso espaciado)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -384,11 +384,12 @@ La semilla forma parte del proyecto y se distribuye bajo la licencia BSL 1.1.
 
 ### Telegram
 
-Al abrir el chat con `/start` (o con `/menu`) aparece un **teclado fijo** con las acciones habituales: `🔍 Consultar`, `📚 Notas`, `🏛️ Palacios`, `🧠 Memorizar`, `🎯 Quiz`, `🔄 Reindexar` y `❓ Ayuda`. No hace falta escribir `/query` ni recordar la sintaxis:
+Al abrir el chat con `/start` (o con `/menu`) aparece un **teclado fijo** con las acciones habituales: `🔍 Consultar`, `📚 Notas`, `🏛️ Palacios`, `🧠 Memorizar`, `🎯 Quiz`, `🃏 Tarjetas`, `📖 Repasar`, `🔄 Reindexar` y `❓ Ayuda`. No hace falta escribir `/query` ni recordar la sintaxis:
 
 - **Consultar** → escribe la pregunta en el siguiente mensaje.
 - **Memorizar** → escribe el número, título o tema de la nota.
 - **Quiz** → escribe el número, título o tema de las notas.
+- **Tarjetas** → lista tus tarjetas; **Repasar** empieza el repaso de las vencidas.
 - **Notas**, **Palacios** y **Reindexar** se ejecutan al pulsar.
 - **Ayuda** vuelve a mostrar el menú y el estado.
 
@@ -409,6 +410,9 @@ Los comandos de la tabla siguen funcionando para quien prefiera escribirlos, y e
 | Ver un palacio o listar todos | `/palacio [número|ruta/o/tema]` |
 | Borrar un palacio | `/palacio rm <número|ruta/o/tema>` |
 | Quiz interactivo | `/quiz tema`, `/quiz 7` o `/quiz notas A, B y C` · `/quiz stop` |
+| Crear tarjetas desde una nota | `/tarjeta 7` o `/tarjeta Título` |
+| Administrar tarjetas | `/tarjetas`, `/tarjetas <id>`, `/tarjeta stats`, `/tarjeta rm|suspender|reanudar|editar <id>` |
+| Repasar tarjetas vencidas | `/repasar` · `/repasar stop` |
 | Coste y tokens acumulados | `/usage` |
 | Ayuda + estado | `/start` |
 | Mostrar el teclado de acciones | `/menu` |
@@ -531,6 +535,22 @@ Cada respuesta de `/query` cita las notas con `[[wikilinks]]` y lista **solo las
 
 El listado sirve para copiar la ruta y consultarla directamente; solo se leen archivos `.md` del vault, ignorando `.obsidian/` y `.trash/`.
 
+#### Repaso espaciado (tarjetas)
+
+Crea tarjetas desde **una nota** con `/tarjeta 7` o `/tarjeta Título`. El bot propone 5 preguntas y respuestas, las muestra en una vista previa y no guarda nada hasta que pulses **Guardar**. Puedes editar cada tarjeta o cancelar el lote.
+
+- `/tarjetas` lista la caja; `/tarjetas <id>` muestra pregunta, respuesta, fuente, etiquetas y próxima fecha. `/tarjetas texto` filtra por pregunta, respuesta o etiqueta.
+- `/tarjeta stats` muestra total, vencidas, repasos de hoy, precisión de 30 días, racha y leeches.
+- `/tarjeta rm|suspender|reanudar|editar <id>` administra una tarjeta. Editar pide primero la pregunta y luego la respuesta.
+- `/repasar` abre una sesión con las tarjetas vencidas (máximo `SR_MAX_DUE_PER_SESSION`). Muestra la pregunta, **Mostrar respuesta** y cuatro calificaciones: **Otra vez**, **Difícil**, **Bien**, **Fácil**. Puedes deshacer la última y terminar con `/repasar stop`.
+- `/repasar etiqueta` limita la sesión a esa etiqueta (por ejemplo, `#proyecto`).
+
+El algoritmo es SM-2 simplificado: `Otra vez` reinicia el intervalo a 10 minutos; `Difícil`/`Bien`/`Fácil` aplican multiplicadores 1,2/2,5/3,2 sobre el intervalo anterior (mínimo 1 día) y ajustan la facilidad entre 1,3 y 3,0. Una tarjeta con `SR_LEECH_THRESHOLD` fallos se marca como leech y no se suspende automáticamente.
+
+Los avisos se envían a las horas de `SR_NOTIFY_TIMES` (zona `SR_TIMEZONE`) si hay tarjetas vencidas y no se alcanzó `SR_MAX_REVIEWS_PER_DAY`; hay una ventana de gracia de `SR_NOTIFY_GRACE_MINUTES`. Se envía como máximo un aviso por franja y día, y no se repite tras reiniciar el bot.
+
+Las tarjetas se guardan en `FLASHCARD_FILE` (`./data/flashcards.json` por defecto), solo con IDs, preguntas, respuestas, etiquetas, fuente y estado de repaso. No se envían a OpenRouter al repasar; el LLM solo se usa al generarlas o evaluar un quiz. Borrar la nota fuente no borra sus tarjetas: se conserva la cita y puedes eliminarlas con `/tarjeta rm`.
+
 ### CLI
 
 ```bash
@@ -601,6 +621,15 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `DOCUMENT_MAX_CHARS` | `200000` | Máximo de texto extraído de un documento |
 | `IMAGES_DIR` | `./data/images` | Fotos originales para OCR |
 | `USAGE_FILE` | `./data/usage.json` | Totales agregados de coste/tokens de OpenRouter |
+| `FLASHCARD_FILE` | `./data/flashcards.json` | Tarjetas, estado de repaso y avisos |
+| `SR_ENABLED` | `true` | Activa los avisos de repaso |
+| `SR_TIMEZONE` | `America/Lima` | Zona IANA para fechas y avisos |
+| `SR_NOTIFY_TIMES` | `08:30,20:30` | Horas locales de aviso, separadas por comas |
+| `SR_NOTIFY_GRACE_MINUTES` | `60` | Ventana para enviar un aviso atrasado |
+| `SR_CARDS_PER_NOTE` | `5` | Tarjetas propuestas por nota |
+| `SR_MAX_REVIEWS_PER_DAY` | `40` | Límite diario de repasos y condición para avisar |
+| `SR_MAX_DUE_PER_SESSION` | `20` | Tarjetas vencidas por sesión de `/repasar` |
+| `SR_LEECH_THRESHOLD` | `6` | Fallos para marcar una tarjeta como leech |
 | `SEED_ON_EMPTY` | `true` | Copia el curso incluido solo si el vault no tiene ninguna nota |
 | `SEED_DIR` | `./seed/aprendizaje/idearium` | Carpeta de la semilla del curso |
 | `EMBEDDING_DIM` | `1024` | Debe coincidir con el modelo de embeddings |
@@ -681,7 +710,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 
 ## Estado y roadmap
 
-**La versión actual en `main`** (v0.2.0) incluye captura de texto, voz, fotos con OCR y documentos; clasificación interactiva; menú fijo de Telegram; notas con `/notas` para listar, leer y borrar; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; CLI; instalador de servidor y modo 100 % OpenRouter.
+**La versión actual en `main`** (v0.2.0) incluye captura de texto, voz, fotos con OCR y documentos; clasificación interactiva; menú fijo de Telegram; notas con `/notas` para listar, leer y borrar; notas en Obsidian; índice LanceDB; RAG; estudios; palacios de memoria; quizzes; **tarjetas con repaso espaciado y avisos programados**; CLI; instalador de servidor y modo 100 % OpenRouter.
 
 Pendiente:
 

@@ -8,7 +8,7 @@ tags:
   - curso
   - indice
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 category: aprendizaje
 type: curso
 curso: Idearium
@@ -82,7 +82,7 @@ Cada nota sigue una estructura común:
 
 ## Convención de numeración
 
-Estas notas son material de curso, no capturas del bot. Por eso usan numeración de curso (`00`, `01`, …) y viven en `Aprendizaje/Idearium/`.
+Estas notas son material de curso, no capturas del bot. Por eso usan prefijos `NNNN` (`0000`, `0001`, …) y viven en `Aprendizaje/Idearium/`.
 
 La numeración global del proyecto (`0001-titulo-DDMMAA.md`, `note_number`, alias `0001`) se reserva para las notas que el usuario captura. Mezclar ambas haría que el curso consumiera números de captura y que `/notas` confundiera documentación con conocimiento personal.
 

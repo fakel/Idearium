@@ -4,6 +4,8 @@ import type { Env } from './config/env.js';
 import { IngestController } from './controllers/ingest.controller.js';
 import { ClusterService } from './services/cluster.service.js';
 import { DocumentService } from './services/document.service.js';
+import { FlashcardGeneratorService } from './services/flashcard-generator.service.js';
+import { FlashcardService } from './services/flashcard.service.js';
 import { OllamaEmbeddingService, OpenAICompatibleEmbeddingService, type Embedder } from './services/embedding.service.js';
 import { Indexer } from './services/indexer.service.js';
 import { createLlmRouter, type LlmRouter } from './services/llm-router.service.js';
@@ -12,6 +14,7 @@ import { NoteSelectorService } from './services/note-selector.service.js';
 import { OcrService } from './services/ocr.service.js';
 import { ObsidianService } from './services/obsidian.service.js';
 import { QuizService } from './services/quiz.service.js';
+import { ReviewService } from './services/review.service.js';
 import { RagService } from './services/rag.service.js';
 import { StorageService } from './services/storage.service.js';
 import { SttService } from './services/stt.service.js';
@@ -35,6 +38,9 @@ export interface Runtime {
   cluster: ClusterService;
   memorize: MemorizeService;
   quiz: QuizService;
+  flashcards: FlashcardService;
+  flashcardGenerator: FlashcardGeneratorService;
+  review: ReviewService;
   usage: UsageTracker;
   close: () => Promise<void>;
 }
@@ -129,6 +135,18 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     selector,
   );
   const quiz = new QuizService(selector, router);
+  const flashcards = new FlashcardService(env.FLASHCARD_FILE, {
+    maxReviewsPerDay: env.SR_MAX_REVIEWS_PER_DAY,
+    maxCardsPerChat: 5_000,
+    leechThreshold: env.SR_LEECH_THRESHOLD,
+    timeZone: env.SR_TIMEZONE,
+  });
+  const flashcardGenerator = new FlashcardGeneratorService(router, {
+    cardsPerNote: env.SR_CARDS_PER_NOTE,
+  });
+  const review = new ReviewService(flashcards, {
+    maxDuePerSession: env.SR_MAX_DUE_PER_SESSION,
+  });
 
   return {
     env,
@@ -147,6 +165,9 @@ export async function createRuntime(env: Env): Promise<Runtime> {
     cluster,
     memorize,
     quiz,
+    flashcards,
+    flashcardGenerator,
+    review,
     usage,
     close: async () => {
       await vector.close();

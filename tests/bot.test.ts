@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findPalaceNumber, isPrivateChat, parsePalaceIndex } from '../src/bot/index.js';
+import { findPalaceNumber, isPrivateChat, parseCardCommand, parsePalaceIndex } from '../src/bot/index.js';
 
 describe('parsePalaceIndex', () => {
   it('acepta números positivos con o sin #', () => {
@@ -32,6 +32,29 @@ describe('findPalaceNumber', () => {
   });
 });
 
+
+describe('parseCardCommand', () => {
+  it('distingue generar, stats y administración', () => {
+    expect(parseCardCommand('0007')).toEqual({ verb: 'generate', argument: '', target: '0007' });
+    expect(parseCardCommand('Notas de café')).toEqual({
+      verb: 'generate',
+      argument: '',
+      target: 'Notas de café',
+    });
+    expect(parseCardCommand('stats')).toEqual({ verb: 'stats', argument: '', target: '' });
+    expect(parseCardCommand('rm abc12345')).toEqual({
+      verb: 'rm',
+      argument: 'abc12345',
+      target: '',
+    });
+    expect(parseCardCommand('editar abc12345').verb).toBe('editar');
+  });
+
+  it('mantiene el subcomando sin argumento para mostrar el uso', () => {
+    expect(parseCardCommand('suspender')).toEqual({ verb: 'suspender', argument: '', target: '' });
+    expect(parseCardCommand('')).toEqual({ verb: 'empty', argument: '', target: '' });
+  });
+});
 
 describe('isPrivateChat', () => {
   it('solo acepta chats privados', () => {

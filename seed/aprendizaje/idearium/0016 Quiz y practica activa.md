@@ -10,7 +10,7 @@ tags:
   - aprendizaje
   - evaluacion
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 category: aprendizaje
 type: curso
 curso: Idearium
@@ -152,15 +152,47 @@ Un quiz de una sola nota también funciona.
 - Más de 6: cansa y se pierde atención.
 - 3–6 permite una sesión corta y frecuente.
 
-## Por qué no Anki
+## Repaso espaciado: del quiz a las tarjetas
+
+El quiz es práctica activa, pero no programa repasos. Para eso se añadió un sistema de tarjetas:
+
+1. `/tarjeta <nota>` genera 5 preguntas y respuestas desde una nota.
+2. Muestra una vista previa editable; nada se guarda hasta pulsar **Guardar**.
+3. Las tarjetas viven en `FLASHCARD_FILE` (`data/flashcards.json`), no en el vault. Así el conocimiento personal y el estado de repaso no se mezclan.
+4. `/repasar` abre una sesión con las tarjetas vencidas, muestra la pregunta, revela la respuesta y pide una calificación.
+
+### SM-2 simplificado
+
+No se implementó Anki completo; se implementó el núcleo que se entiende y se puede auditar:
+
+- **Otra vez**: el intervalo vuelve a 10 minutos y sube el contador de fallos.
+- **Difícil / Bien / Fácil**: multiplican el intervalo anterior por 1,2 / 2,5 / 3,2, con mínimo de un día.
+- La **facilidad** se ajusta entre 1,3 y 3,0.
+- Una tarjeta con muchos fallos se marca como *leech* (`SR_LEECH_THRESHOLD`), pero no se suspende sola: el usuario decide.
+
+El estado guarda intervalo, facilidad, repeticiones, fallos, próxima fecha y último repaso. `undo` restaura el estado anterior, algo que Anki también ofrece y que es fácil de romper si solo se guarda el estado actual.
+
+### Avisos
+
+Un scheduler revisa cada minuto si toca avisar:
+
+- horas configuradas en `SR_NOTIFY_TIMES` y zona `SR_TIMEZONE`;
+- ventana de gracia `SR_NOTIFY_GRACE_MINUTES`;
+- solo si hay tarjetas vencidas y no se alcanzó `SR_MAX_REVIEWS_PER_DAY`;
+- como máximo un aviso por franja, día y chat, persistido en el JSON para no repetirlo tras reiniciar.
+
+El scheduler no envía nada si `SR_ENABLED=false`; el repaso manual sigue funcionando.
+
+## Por qué tarjetas propias y no Anki
 
 Anki es excelente para repetición espaciada, pero:
 
 - requiere tarjetas creadas a mano,
 - no entiende el contexto de una nota,
-- no genera preguntas.
+- no genera preguntas desde el conocimiento que ya capturaste,
+- añade decks, sincronización y un ecosistema que no hacen falta aquí.
 
-Idearium no reemplaza Anki; genera práctica a partir de notas existentes. Una integración futura podría exportar tarjetas.
+Idearium no reemplaza Anki: usa las notas como fuente, genera tarjetas y aplica un SM-2 simplificado. Si algún día necesitas decks compartidos, estadísticas avanzadas o imágenes en las tarjetas, Anki sigue siendo mejor. La ventaja de Idearium es que la tarjeta nace de una nota y conserva su cita.
 
 ## Errores reales
 

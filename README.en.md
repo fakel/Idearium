@@ -371,7 +371,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencies, models, STT, vault, token, LanceDB
-npm test         # 138 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla)
+npm test         # 171 tests (schemas, multi-note selector, chunking, frontmatter, classification, palaces, indexer, RAG, bot, STT, seed, spaced repetition)
 npm run smoke    # E2E in a temporary vault: create, index, and query a note
 ```
 
@@ -385,11 +385,12 @@ The seed is part of the project and is distributed under the BSL 1.1 license.
 
 ### Telegram
 
-Opening the chat with `/start` (or with `/menu`) shows a **fixed keyboard** with the usual actions: `🔍 Consultar`, `📚 Notas`, `🏛️ Palacios`, `🧠 Memorizar`, `🎯 Quiz`, `🔄 Reindexar`, and `❓ Ayuda`. There is no need to type `/query` or remember the syntax:
+Opening the chat with `/start` (or with `/menu`) shows a **fixed keyboard** with the usual actions: `🔍 Consultar`, `📚 Notas`, `🏛️ Palacios`, `🧠 Memorizar`, `🎯 Quiz`, `🃏 Tarjetas`, `📖 Repasar`, `🔄 Reindexar`, and `❓ Ayuda`. There is no need to type `/query` or remember the syntax:
 
 - **Consultar** → write the question in the next message.
 - **Memorizar** → write the number, title, or topic of the note.
 - **Quiz** → write the number, title, or topic of the notes.
+- **Tarjetas** → lists your cards; **Repasar** starts reviewing the due ones.
 - **Notas**, **Palacios**, and **Reindexar** run when pressed.
 - **Ayuda** shows the menu and the status again.
 
@@ -410,6 +411,9 @@ The commands in the table still work for those who prefer to type them, and Tele
 | View a palace or list all | `/palacio [número|ruta/o/tema]` |
 | Delete a palace | `/palacio rm <número|ruta/o/tema>` |
 | Interactive quiz | `/quiz tema`, `/quiz 7`, or `/quiz notas A, B y C` · `/quiz stop` |
+| Create cards from a note | `/tarjeta 7` or `/tarjeta Título` |
+| Manage cards | `/tarjetas`, `/tarjetas <id>`, `/tarjeta stats`, `/tarjeta rm|suspender|reanudar|editar <id>` |
+| Review due cards | `/repasar` · `/repasar stop` |
 | Accumulated cost and tokens | `/usage` |
 | Help + status | `/start` |
 | Show the action keyboard | `/menu` |
@@ -532,6 +536,22 @@ Each `/query` response cites the notes with `[[wikilinks]]` and lists **only the
 
 The listing is useful for copying the path and querying it directly; only `.md` files in the vault are read, ignoring `.obsidian/` and `.trash/`.
 
+#### Spaced repetition (flashcards)
+
+Create cards from **one note** with `/tarjeta 7` or `/tarjeta Título`. The bot proposes 5 question/answer pairs, shows a preview, and saves nothing until you press **Guardar** (Save). You can edit each card or cancel the batch.
+
+- `/tarjetas` lists your box; `/tarjetas <id>` shows question, answer, source, tags, and next date. `/tarjetas text` filters by question, answer, or tag.
+- `/tarjeta stats` shows total, due, reviews today, 30-day accuracy, streak, and leeches.
+- `/tarjeta rm|suspender|reanudar|editar <id>` manages a card. Editing asks for the question first, then the answer.
+- `/repasar` opens a session with due cards (at most `SR_MAX_DUE_PER_SESSION`). It shows the question, **Mostrar respuesta** (Show answer), and four ratings: **Otra vez**, **Difícil**, **Bien**, **Fácil**. You can undo the last one and stop with `/repasar stop`.
+- `/repasar tag` limits the session to that tag (for example, `#proyecto`).
+
+The algorithm is simplified SM-2: `Otra vez` resets the interval to 10 minutes; `Difícil`/`Bien`/`Fácil` apply 1.2/2.5/3.2 multipliers to the previous interval (minimum 1 day) and adjust ease between 1.3 and 3.0. A card with `SR_LEECH_THRESHOLD` lapses is marked as a leech and is not suspended automatically.
+
+Reminders are sent at `SR_NOTIFY_TIMES` (time zone `SR_TIMEZONE`) when cards are due and `SR_MAX_REVIEWS_PER_DAY` has not been reached; there is a `SR_NOTIFY_GRACE_MINUTES` window. At most one reminder is sent per slot and day, and it is not repeated after a bot restart.
+
+Cards are stored in `FLASHCARD_FILE` (`./data/flashcards.json` by default), with only IDs, questions, answers, tags, source, and review state. They are not sent to OpenRouter during review; the LLM is used only to generate them or evaluate a quiz. Deleting the source note does not delete its cards: the citation is kept and you can remove them with `/tarjeta rm`.
+
 ### CLI
 
 ```bash
@@ -604,6 +624,15 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 | `DOCUMENT_MAX_CHARS` | `200000` | Maximum text extracted from a document |
 | `IMAGES_DIR` | `./data/images` | Original photos for OCR |
 | `USAGE_FILE` | `./data/usage.json` | Aggregated OpenRouter cost/token totals |
+| `FLASHCARD_FILE` | `./data/flashcards.json` | Cards, review state, and reminders |
+| `SR_ENABLED` | `true` | Enables review reminders |
+| `SR_TIMEZONE` | `America/Lima` | IANA zone for dates and reminders |
+| `SR_NOTIFY_TIMES` | `08:30,20:30` | Local reminder times, comma-separated |
+| `SR_NOTIFY_GRACE_MINUTES` | `60` | Window for a late reminder |
+| `SR_CARDS_PER_NOTE` | `5` | Cards proposed per note |
+| `SR_MAX_REVIEWS_PER_DAY` | `40` | Daily review limit and reminder condition |
+| `SR_MAX_DUE_PER_SESSION` | `20` | Due cards per `/repasar` session |
+| `SR_LEECH_THRESHOLD` | `6` | Lapses before a card is marked as a leech |
 | `SEED_ON_EMPTY` | `true` | Copies the included course only if the vault has no notes |
 | `SEED_DIR` | `./seed/aprendizaje/idearium` | Course seed folder |
 | `EMBEDDING_DIM` | `1024` | Must match the embeddings model |
@@ -684,7 +713,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 
 ## Status and roadmap
 
-**The current version on `main`** (v0.2.0) includes text, voice, photo-with-OCR, and document capture; interactive classification; a fixed Telegram menu; notes with `/notas` to list, read, and delete; notes in Obsidian; a LanceDB index; RAG; studies; palaces of memory; quizzes; a CLI; a server installer; and a 100 % OpenRouter mode.
+**The current version on `main`** (v0.2.0) includes text, voice, photo-with-OCR, and document capture; interactive classification; a fixed Telegram menu; notes with `/notas` to list, read, and delete; notes in Obsidian; a LanceDB index; RAG; studies; palaces of memory; quizzes; **flashcards with spaced repetition and scheduled reminders**; a CLI; a server installer; and a 100 % OpenRouter mode.
 
 Pending:
 

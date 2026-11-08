@@ -16,6 +16,7 @@ services:
       DOCUMENT_DIR: /data/documents
       IMAGES_DIR: /data/images
       USAGE_FILE: /data/usage.json
+      FLASHCARD_FILE: /data/flashcards.json
       SEED_ON_EMPTY: ${SEED_ON_EMPTY:-true}
       SEED_DIR: /app/seed/aprendizaje/idearium
       TZ: ${TZ:-UTC}

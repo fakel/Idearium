@@ -10,7 +10,7 @@ tags:
   - vitest
   - calidad
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 category: aprendizaje
 type: curso
 curso: Idearium
@@ -142,12 +142,22 @@ Se prueban funciones puras:
 
 No se prueba Telegram real en unit tests.
 
+### Repaso espaciado
+
+- SM-2 con fechas fijas: intervalos, facilidad, leech y `undo`.
+- Persistencia: archivo corrupto se aparta y se reinicia, dos instancias no deben pisarse, límites diarios.
+- Generación de tarjetas: JSON inválido, duplicados, respuesta copiada de la pregunta, fuente inventada.
+- Sesión de repaso: orden estable, deshacer, fin de sesión, límite diario.
+- Scheduler: slots, ventana de gracia, un aviso por día, reinicio y `SR_ENABLED=false`.
+
+Estos tests usan un reloj inyectado (`now: () => fechaFija`) y una zona IANA, no la hora real. Así se prueba el paso del tiempo sin esperar días.
+
 ## Qué no se prueba
 
 - calidad de la respuesta del LLM,
 - latencia real de OpenRouter,
 - interfaz de Telegram,
-- OCR (no implementado),
+- calidad del OCR (el flujo sí se prueba con mocks),
 - comportamiento exacto de modelos.
 
 Eso se cubre con smoke tests y pruebas manuales.

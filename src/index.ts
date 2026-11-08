@@ -3,6 +3,7 @@ import { createRuntime } from './bootstrap.js';
 import { createBot, telegramCommands } from './bot/index.js';
 import { logger } from './lib/logger.js';
 import { seedCourseIfEmpty } from './services/seed.service.js';
+import { ReviewSchedulerService } from './services/review-scheduler.service.js';
 import { WatcherService } from './services/watcher.service.js';
 
 async function main(): Promise<void> {
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
 
   const bot = createBot(runtime);
   let watcher: WatcherService | undefined;
+  let reviewScheduler: ReviewSchedulerService | undefined;
 
   try {
     await bot.init();
@@ -60,6 +62,19 @@ async function main(): Promise<void> {
     // quedar un proceso vivo sin bot escuchando.
     watcher = new WatcherService({ notesDir: env.OBSIDIAN_VAULT_PATH }, runtime.indexer);
     watcher.start();
+
+    reviewScheduler = new ReviewSchedulerService(
+      runtime.flashcards,
+      (chatId, text) => bot.api.sendMessage(chatId, text).then(() => undefined),
+      {
+        enabled: env.SR_ENABLED,
+        timeZone: env.SR_TIMEZONE,
+        notifyTimes: env.SR_NOTIFY_TIMES,
+        graceMinutes: env.SR_NOTIFY_GRACE_MINUTES,
+        maxReviewsPerDay: env.SR_MAX_REVIEWS_PER_DAY,
+      },
+    );
+    reviewScheduler.start();
 
     const remoteFirst = env.effectivePreference === 'remote_only' || env.effectivePreference === 'remote_first';
     const remote = env.remoteProviders[0];
@@ -77,6 +92,7 @@ async function main(): Promise<void> {
     const shutdown = async (signal: string): Promise<void> => {
       logger.info({ signal }, 'app.shutdown');
       await bot.stop();
+      await reviewScheduler?.stop();
       await watcher?.stop();
       await runtime.close();
       process.exit(0);
@@ -86,6 +102,7 @@ async function main(): Promise<void> {
 
     await bot.start({ drop_pending_updates: false });
   } catch (error) {
+    reviewScheduler?.stop();
     await watcher?.stop().catch(() => undefined);
     await runtime.close().catch(() => undefined);
     throw error;
