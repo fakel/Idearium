@@ -370,7 +370,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 171 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla, repaso espaciado)
+npm test         # 174 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla, repaso espaciado)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -538,6 +538,8 @@ El listado sirve para copiar la ruta y consultarla directamente; solo se leen ar
 #### Repaso espaciado (tarjetas)
 
 Crea tarjetas desde **una nota** con `/tarjeta 7` o `/tarjeta Título`. El bot propone 5 preguntas y respuestas, las muestra en una vista previa y no guarda nada hasta que pulses **Guardar**. Puedes editar cada tarjeta o cancelar el lote.
+
+Al terminar un `/quiz`, las preguntas falladas se ofrecen en esa misma vista previa. Cada tarjeta conserva su nota fuente aunque el quiz haya usado varias, y no se vuelve a llamar al modelo: se reutilizan la pregunta y la respuesta del quiz.
 
 - `/tarjetas` lista la caja; `/tarjetas <id>` muestra pregunta, respuesta, fuente, etiquetas y próxima fecha. `/tarjetas texto` filtra por pregunta, respuesta o etiqueta.
 - `/tarjeta stats` muestra total, vencidas, repasos de hoy, precisión de 30 días, racha y leeches.

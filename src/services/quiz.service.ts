@@ -6,6 +6,11 @@ export interface QuizQuestion {
   source: string;
 }
 
+export interface QuizFailedQuestion extends QuizQuestion {
+  sourceNote: string;
+  tags: string[];
+}
+
 export interface QuizLlm {
   completeJson<T>(request: {
     messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
@@ -32,6 +37,8 @@ interface QuizSession {
   index: number;
   score: number;
   perNote: Map<string, NoteScore>;
+  sources: Map<string, { relativePath: string; tags: string[]; category: string }>;
+  failed: QuizFailedQuestion[];
 }
 
 export interface QuizStart {
@@ -48,6 +55,7 @@ export interface QuizFeedback {
   total: number;
   nextQuestion?: string;
   summary?: string;
+  failed?: QuizFailedQuestion[];
 }
 
 const minimumQuestions = 3;
@@ -107,6 +115,13 @@ export class QuizService {
       index: 0,
       score: 0,
       perNote,
+      sources: new Map(
+        contexts.map((note) => [
+          normalizeTitle(note.title),
+          { relativePath: note.relativePath, tags: [...note.tags], category: note.category },
+        ]),
+      ),
+      failed: [],
     };
     this.sessions.set(chatId, session);
 
@@ -146,6 +161,13 @@ export class QuizService {
     if (evaluation.value.correct) {
       session.score += 1;
       if (noteScore) noteScore.correct += 1;
+    } else {
+      const meta = session.sources.get(normalizeTitle(current.source));
+      session.failed.push({
+        ...current,
+        sourceNote: meta?.relativePath ?? '',
+        tags: [...new Set(['quiz', meta?.category ?? '', ...(meta?.tags ?? [])].filter(Boolean))],
+      });
     }
 
     const total = session.questions.length;
@@ -167,6 +189,7 @@ export class QuizService {
         score: session.score,
         total,
         summary: buildSummary(session),
+        failed: session.failed,
       };
     }
 

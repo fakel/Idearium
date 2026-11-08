@@ -27,6 +27,22 @@ describe('PendingCardStore', () => {
     expect(batch?.edit).toBeUndefined();
   });
 
+  it('keeps a source per card for mixed-note batches', () => {
+    const store = new PendingCardStore();
+    store.create(
+      7,
+      [
+        { ...cards[0]!, sourceNote: 'Alfa.md', sourceTitle: 'Alfa' },
+        { ...cards[1]!, sourceNote: 'Beta.md', sourceTitle: 'Beta' },
+      ],
+      { note: '', title: 'Quiz' },
+    );
+    expect(store.get(7)?.cards.map((card) => [card.sourceNote, card.sourceTitle])).toEqual([
+      ['Alfa.md', 'Alfa'],
+      ['Beta.md', 'Beta'],
+    ]);
+  });
+
   it('rejects empty edits and allows cancelling', () => {
     const store = new PendingCardStore();
     store.create(7, cards, { note: 'Nota.md', title: 'Nota' });

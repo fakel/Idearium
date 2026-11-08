@@ -717,13 +717,18 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
   }
 
   async function sendCardPreview(ctx: Context, batch: PendingCardBatch): Promise<void> {
-    const lines = [
-      `🃏 ${batch.cards.length} tarjetas propuestas desde [[${batch.sourceTitle}]]`,
-      '',
-    ];
+    const sourceTitles = [...new Set(batch.cards.map((card) => card.sourceTitle ?? batch.sourceTitle).filter(Boolean))];
+    const sourceLabel =
+      sourceTitles.length === 1
+        ? ` desde [[${sourceTitles[0]}]]`
+        : sourceTitles.length > 1
+          ? ` desde ${sourceTitles.length} notas`
+          : '';
+    const lines = [`🃏 ${batch.cards.length} tarjetas propuestas${sourceLabel}`, ''];
     batch.cards.forEach((card, index) => {
       lines.push(`${index + 1}. ${truncate(card.question, 300)}`);
       lines.push(`   ${truncate(card.answer, 400)}`);
+      if (sourceTitles.length > 1 && card.sourceTitle) lines.push(`   Fuente: [[${card.sourceTitle}]]`);
     });
     lines.push('', 'Guárdalas o edita una antes de continuar.');
     const keyboard = new InlineKeyboard();
@@ -745,14 +750,21 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
           question: card.question,
           answer: card.answer,
           tags: card.tags,
-          sourceNote: batch.sourceNote,
-          sourceTitle: batch.sourceTitle,
+          sourceNote: card.sourceNote ?? batch.sourceNote,
+          sourceTitle: card.sourceTitle ?? batch.sourceTitle,
         })),
       );
       pendingCards.clear(chatId);
+      const sourceTitles = [...new Set(saved.map((card) => card.sourceTitle).filter(Boolean))];
+      const sourceLabel =
+        sourceTitles.length === 1
+          ? ` de [[${sourceTitles[0]}]]`
+          : sourceTitles.length > 1
+            ? ` de ${sourceTitles.length} notas`
+            : '';
       await reply(
         ctx,
-        `✅ Guardé ${saved.length} tarjeta(s) de [[${batch.sourceTitle}]].\nUsa /repasar cuando quieras empezar.`,
+        `✅ Guardé ${saved.length} tarjeta(s)${sourceLabel}.\nUsa /repasar cuando quieras empezar.`,
       );
     } catch (error) {
       await replyError(ctx, error);
@@ -1139,6 +1151,20 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
           parts.push('', `Siguiente pregunta: ${feedback.nextQuestion}`);
         }
         await reply(ctx, parts.filter(Boolean).join('\n'));
+        if (feedback.finished && feedback.failed?.length) {
+          const batch = pendingCards.create(
+            ctx.chat.id,
+            feedback.failed.map((item) => ({
+              question: item.question,
+              answer: item.answer,
+              tags: item.tags,
+              sourceNote: item.sourceNote,
+              sourceTitle: item.source,
+            })),
+            { note: '', title: 'Quiz' },
+          );
+          await sendCardPreview(ctx, batch);
+        }
       } catch (error) {
         await replyError(ctx, error);
       }

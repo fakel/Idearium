@@ -5,6 +5,8 @@ export interface GeneratedCard {
   question: string;
   answer: string;
   tags: string[];
+  sourceNote?: string;
+  sourceTitle?: string;
 }
 
 export interface FlashcardGeneratorLlm {

@@ -93,6 +93,37 @@ describe('QuizService multi-nota', () => {
     expect(quiz.hasSession(1)).toBe(false);
   });
 
+  it('devuelve las preguntas falladas con su fuente y etiquetas al terminar', async () => {
+    const dir = await notesVault();
+    const { llm } = fakeLlm([
+      {
+        questions: [
+          { question: '¿Qué contiene Alfa?', answer: 'Contenido de Alfa', source: 'Alfa' },
+          { question: 'Otra de Alfa', answer: 'Contenido de Alfa', source: 'Alfa' },
+          { question: 'Tercera de Alfa', answer: 'Contenido de Alfa', source: 'Alfa' },
+        ],
+      },
+      { correct: false, feedback: 'Falta un detalle' },
+      { correct: true, feedback: 'Bien' },
+      { correct: true, feedback: 'Bien' },
+    ]);
+
+    const quiz = new QuizService(selector(dir), llm);
+    await quiz.start(9, 'alfa');
+    await quiz.answer(9, 'no sé');
+    await quiz.answer(9, 'bien');
+    const last = await quiz.answer(9, 'bien');
+
+    expect(last?.failed).toHaveLength(1);
+    expect(last?.failed?.[0]).toMatchObject({
+      question: '¿Qué contiene Alfa?',
+      answer: 'Contenido de Alfa',
+      source: 'Alfa',
+      sourceNote: 'alfa.md',
+    });
+    expect(last?.failed?.[0]?.tags).toEqual(expect.arrayContaining(['quiz', 'idea']));
+  });
+
   it('funciona con una sola nota y no exige varios remitentes', async () => {
     const dir = await notesVault();
     const { llm } = fakeLlm([
@@ -114,6 +145,30 @@ describe('QuizService multi-nota', () => {
     expect(feedback?.feedback).toContain('Fuente: [[Alfa]]');
     expect(feedback?.finished).toBe(false);
     quiz.stop(7);
+  });
+
+  it('no devuelve fallos cuando todas las respuestas son correctas', async () => {
+    const dir = await notesVault();
+    const { llm } = fakeLlm([
+      {
+        questions: [
+          { question: '¿Qué contiene Alfa?', answer: 'Contenido de Alfa', source: 'Alfa' },
+          { question: 'Otra de Alfa', answer: 'Contenido de Alfa', source: 'Alfa' },
+          { question: 'Tercera de Alfa', answer: 'Contenido de Alfa', source: 'Alfa' },
+        ],
+      },
+      { correct: true, feedback: 'Bien' },
+      { correct: true, feedback: 'Bien' },
+      { correct: true, feedback: 'Bien' },
+    ]);
+
+    const quiz = new QuizService(selector(dir), llm);
+    await quiz.start(11, 'alfa');
+    await quiz.answer(11, 'bien');
+    await quiz.answer(11, 'bien');
+    const last = await quiz.answer(11, 'bien');
+
+    expect(last?.failed).toEqual([]);
   });
 
   it('falla si no hay notas para el tema', async () => {

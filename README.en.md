@@ -371,7 +371,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencies, models, STT, vault, token, LanceDB
-npm test         # 171 tests (schemas, multi-note selector, chunking, frontmatter, classification, palaces, indexer, RAG, bot, STT, seed, spaced repetition)
+npm test         # 174 tests (schemas, multi-note selector, chunking, frontmatter, classification, palaces, indexer, RAG, bot, STT, seed, spaced repetition)
 npm run smoke    # E2E in a temporary vault: create, index, and query a note
 ```
 
@@ -539,6 +539,8 @@ The listing is useful for copying the path and querying it directly; only `.md` 
 #### Spaced repetition (flashcards)
 
 Create cards from **one note** with `/tarjeta 7` or `/tarjeta Título`. The bot proposes 5 question/answer pairs, shows a preview, and saves nothing until you press **Guardar** (Save). You can edit each card or cancel the batch.
+
+When a `/quiz` ends, the questions you got wrong are offered in the same preview. Each card keeps its own source note even if the quiz covered several notes, and the model is not called again: the quiz question and answer are reused.
 
 - `/tarjetas` lists your box; `/tarjetas <id>` shows question, answer, source, tags, and next date. `/tarjetas text` filters by question, answer, or tag.
 - `/tarjeta stats` shows total, due, reviews today, 30-day accuracy, streak, and leeches.
