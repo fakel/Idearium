@@ -6,6 +6,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
 ### Añadido
 
 - Repaso espaciado: `/tarjeta <nota>` genera tarjetas con vista previa y edición, `/tarjetas` las lista y administra, `/repasar` abre una sesión con calificaciones SM-2 simplificado (Otra vez/Difícil/Bien/Fácil), deshacer y resumen, y avisos programados con zona horaria, gracia y límite diario. Estado persistente en `FLASHCARD_FILE`.
@@ -160,6 +162,7 @@ Primera versión funcional: captura por Telegram/CLI, notas en Obsidian, índice
 - Las notas se borran con `/notas rm`; si se eliminan desde Obsidian, el watcher o `/reindex` limpia el índice.
 - No hay pruebas automáticas de llamadas reales a OpenRouter por falta de clave en el entorno de desarrollo.
 
+[0.3.0]: https://github.com/fakel/Idearium/releases/tag/v0.3.0
 [0.2.0]: https://github.com/fakel/Idearium/releases/tag/v0.2.0
 [0.1.1]: https://github.com/fakel/Idearium/releases/tag/v0.1.1
 [0.1.0]: https://github.com/fakel/Idearium/releases/tag/v0.1.0

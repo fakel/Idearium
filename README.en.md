@@ -1,6 +1,6 @@
 # 💡 Idearium
 
-**Version 0.2.0** · [Español](README.md) · [Changelog](CHANGELOG.md) · [BSL 1.1 License](LICENSE)
+**Version 0.3.0** · [Español](README.md) · [Changelog](CHANGELOG.md) · [BSL 1.1 License](LICENSE)
 
 > Capture by voice, text, photo, or document → structured Markdown notes in Obsidian → semantic search and RAG, all local.
 
@@ -715,7 +715,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 
 ## Status and roadmap
 
-**The current version on `main`** (v0.2.0) includes text, voice, photo-with-OCR, and document capture; interactive classification; a fixed Telegram menu; notes with `/notas` to list, read, and delete; notes in Obsidian; a LanceDB index; RAG; studies; palaces of memory; quizzes; **flashcards with spaced repetition and scheduled reminders**; a CLI; a server installer; and a 100 % OpenRouter mode.
+**The current version on `main`** (v0.3.0) includes text, voice, photo-with-OCR, and document capture; interactive classification; a fixed Telegram menu; notes with `/notas` to list, read, and delete; notes in Obsidian; a LanceDB index; RAG; studies; palaces of memory; quizzes; **flashcards with spaced repetition and scheduled reminders**; a CLI; a server installer; and a 100 % OpenRouter mode.
 
 Pending:
 
