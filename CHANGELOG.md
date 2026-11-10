@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+
+- El instalador configura `NODE_OPTIONS=--no-network-family-autoselection` en systemd: Node 24 podía quedarse sin arrancar el bot tras un reinicio porque la selección automática de IPv4/IPv6 no lograba conectar con Telegram.
+
 ## [0.3.0] - 2026-11-08
 
 ### Añadido

@@ -401,6 +401,9 @@ Group=$SERVICE_GROUP
 WorkingDirectory=$PROJECT_DIR
 EnvironmentFile=$ENV_FILE
 Environment=NODE_ENV=production
+# Node 24 Happy Eyeballs puede fallar contra Telegram en algunas redes;
+# forzar la selección de dirección clásica evita timeouts al arrancar.
+Environment=NODE_OPTIONS=--no-network-family-autoselection
 ExecStart=$NODE_BIN $PROJECT_DIR/dist/index.js
 Restart=on-failure
 RestartSec=5
