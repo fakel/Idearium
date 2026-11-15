@@ -425,7 +425,16 @@ export function createBot(runtime: Runtime, log: Logger = logger): Bot {
     const chatId = ctx.chat?.id;
     if (chatId && (await rejectIfQuizActive(ctx, chatId, 'reindexar'))) return;
     if (chatId && (await rejectIfReviewActive(ctx, chatId, 'reindexar'))) return;
-    await reply(ctx, 'Reindexando el vault… esto puede tardar.');
+    await reply(ctx, 'Revisando la numeración de las notas…');
+    const numbered = await runtime.obsidian.normalizeAllNotes();
+    const numberedText =
+      numbered.renamed.length > 0
+        ? `Renumeradas ${numbered.renamed.length} nota(s):\n${numbered.renamed
+            .slice(0, 10)
+            .map((item) => `- ${item.from} → ${item.to}`)
+            .join('\n')}${numbered.renamed.length > 10 ? `\n… y ${numbered.renamed.length - 10} más` : ''}${numbered.failed.length > 0 ? `\nFallidas: ${numbered.failed.length}` : ''}\n\n`
+        : '';
+    await reply(ctx, `${numberedText}Reindexando el vault… esto puede tardar.`);
     try {
       const result = await runtime.indexer.reindexAll();
       await reply(

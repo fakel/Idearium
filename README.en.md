@@ -562,6 +562,7 @@ npm run cli -- audio ./nota.ogg [--remote]
 npm run cli -- query "¿qué ideas tengo sobre X?"
 npm run cli -- notes [texto]
 npm run cli -- reindex
+npm run cli -- normalize [--dry-run]   # number manual notes lacking the convention
 ```
 
 `--remote` forces OpenRouter (it fails if there is no `OPENROUTER_API_KEY`).
@@ -687,7 +688,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - `chunkMarkdown` splits by headings and splits long sections with overlap.
 - Each chunk is embedded with `bge-m3` in batches and stored in the `notes` table of LanceDB (`note_path`, `chunk_index`, `vector`, `text`, `title`, `tags`, `category`, `updated_at`).
 - A hash per file is stored in `data/index-state.json`; if it has not changed, it is not reindexed.
-- The watcher (`chokidar`, 500 ms debounce) syncs manual edits to the vault, ignoring `.obsidian/` and `.trash/`. If you create an unnumbered note by hand (`My idea.md`), it renames it to `NNNN-slug-DDMMAA.md`, adds `note_number`/`aliases` to the frontmatter, and keeps the content. It leaves `Palacios/` and `Estudios/` alone.
+- The watcher (`chokidar`, 500 ms debounce) syncs manual edits to the vault, ignoring `.obsidian/` and `.trash/`. If you create an unnumbered note by hand (`My idea.md`), it renames it to `NNNN-slug-DDMMAA.md`, adds `note_number`/`aliases` to the frontmatter, and keeps the content. It leaves `Palacios/` and generated studies (`Estudios/YYYY-MM-DD-cluster-*.md`) alone; a manual note inside `Estudios/` is numbered. For notes that existed before enabling this: `npm run cli -- normalize` (or `/reindex` from Telegram, which numbers before indexing).
 
 ## Troubleshooting
 

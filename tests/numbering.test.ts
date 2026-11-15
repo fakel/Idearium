@@ -74,6 +74,33 @@ describe('normalizeNewNote', () => {
     await mkdir(path.dirname(study), { recursive: true });
     await writeFile(study, '# Estudio\n', 'utf8');
     expect(await service.normalizeNewNote(study)).toBe(study);
+
+    // Una nota manual dentro de Estudios sí se numera.
+    const manualStudy = path.join(vault, 'Estudios', 'apuntes sueltos.md');
+    await writeFile(manualStudy, '# Apuntes\n', 'utf8');
+    const renamedManual = await service.normalizeNewNote(manualStudy);
+    expect(path.basename(renamedManual)).toMatch(/^\d{4}-apuntes-sueltos-\d{6}\.md$/);
+  });
+
+  it('migra todas las notas sin numerar en orden de antigüedad', async () => {
+    await writeFile(path.join(vault, '0001-vieja-010126.md'), '# Vieja\n', 'utf8');
+    const second = path.join(vault, 'segunda.md');
+    await writeFile(second, '# Segunda\n', 'utf8');
+    await utimes(second, new Date(2026, 0, 3, 12), new Date(2026, 0, 3, 12));
+    const third = path.join(vault, 'tercera.md');
+    await writeFile(third, '# Tercera\n', 'utf8');
+    await utimes(third, new Date(2026, 0, 4, 12), new Date(2026, 0, 4, 12));
+
+    expect(await service.normalizeAllNotesPreview()).toEqual(['segunda.md', 'tercera.md']);
+
+    const result = await service.normalizeAllNotes();
+
+    expect(result.failed).toEqual([]);
+    expect(result.renamed.map((item) => path.basename(item.to))).toEqual([
+      '0002-segunda-030126.md',
+      '0003-tercera-040126.md',
+    ]);
+    expect(await service.normalizeAllNotesPreview()).toEqual([]);
   });
 
   it('reconoce los dos formatos de numeración existentes', () => {

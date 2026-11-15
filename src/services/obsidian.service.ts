@@ -211,8 +211,8 @@ export class ObsidianService {
    * Asigna numeración a una nota creada a mano en Obsidian.
    *
    * Solo actúa sobre archivos nuevos sin prefijo `NNNN` ni formato
-   * `NNNN-slug-DDMMAA.md`. Las carpetas gestionadas por Idearium
-   * (`Palacios/` y `Estudios/`) se dejan intactas.
+   * `NNNN-slug-DDMMAA.md`. Se dejan intactas las notas que Idearium genera
+   * con nombre propio (`Palacios/` y `Estudios/AAAA-MM-DD-cluster-*.md`).
    */
   async normalizeNewNote(filePath: string): Promise<string> {
     const root = path.resolve(this.config.vaultPath);
@@ -221,8 +221,7 @@ export class ObsidianService {
 
     const relative = path.relative(root, absolute);
     if (!relative || relative.startsWith('..')) return filePath;
-    const topFolder = relative.split(path.sep)[0];
-    if (topFolder === 'Palacios' || topFolder === 'Estudios') return filePath;
+    if (isManagedNotePath(relative)) return filePath;
 
     const base = path.basename(absolute, '.md');
     if (isNumberedNoteName(base)) return filePath;
@@ -285,6 +284,55 @@ export class ObsidianService {
     throw new Error('No se pudo asignar un número libre a la nota nueva.');
   }
 
+  /**
+   * Migración: numera todas las notas del vault que aún no sigan la convención.
+   *
+   * Recorre de la más antigua a la más reciente (mtime) para que los números
+   * respeten el orden de creación. Ignora `Palacios/`, los estudios generados,
+   * `.obsidian/` y `.trash/` igual que el watcher.
+   */
+  async normalizeAllNotes(): Promise<{
+    renamed: Array<{ from: string; to: string }>;
+    failed: Array<{ path: string; error: string }>;
+  }> {
+    const files = await this.listMarkdownFiles();
+    const ordered = await Promise.all(
+      files.map(async (file) => ({
+        file,
+        time: await stat(file)
+          .then((info) => info.mtimeMs)
+          .catch(() => 0),
+      })),
+    );
+    ordered.sort((a, b) => a.time - b.time);
+
+    const renamed: Array<{ from: string; to: string }> = [];
+    const failed: Array<{ path: string; error: string }> = [];
+    for (const { file } of ordered) {
+      if (isNumberedNoteName(path.basename(file))) continue;
+      try {
+        const to = await this.normalizeNewNote(file);
+        if (to !== file) renamed.push({ from: file, to });
+      } catch (error) {
+        failed.push({ path: file, error: String(error) });
+      }
+    }
+    return { renamed, failed };
+  }
+
+  /** Lista de notas que `normalizeAllNotes` renumeraría (sin tocar nada). */
+  async normalizeAllNotesPreview(): Promise<string[]> {
+    const files = await this.listMarkdownFiles();
+    return files
+      .filter((file) => {
+        const relative = path.relative(this.config.vaultPath, file);
+        if (isManagedNotePath(relative)) return false;
+        return !isNumberedNoteName(path.basename(file));
+      })
+      .map((file) => path.relative(this.config.vaultPath, file))
+      .sort((a, b) => a.localeCompare(b, 'es'));
+  }
+
   /** Siguiente número global del vault, mirando el prefijo de cada .md. */
   async nextNoteNumber(): Promise<number> {
     let max = 0;
@@ -303,6 +351,16 @@ export class ObsidianService {
     }
     return max + 1;
   }
+}
+
+/**
+ * Rutas cuya numeración no gestiona el watcher: palacios y estudios generados
+ * por Idearium, que ya llevan nombre propio con fecha.
+ */
+export function isManagedNotePath(relativePath: string): boolean {
+  const segments = relativePath.split(path.sep);
+  if (segments[0] === 'Palacios') return true;
+  return /^\d{4}-\d{2}-\d{2}-(cluster|palacio)-/.test(path.basename(relativePath));
 }
 
 /** ¿El nombre ya sigue la convención NNNN-slug-DDMMAA o el prefijo del curso? */

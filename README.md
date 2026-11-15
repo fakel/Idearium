@@ -561,6 +561,7 @@ npm run cli -- audio ./nota.ogg [--remote]
 npm run cli -- query "¿qué ideas tengo sobre X?"
 npm run cli -- notes [texto]
 npm run cli -- reindex
+npm run cli -- normalize [--dry-run]   # renumera notas manuales sin convención
 ```
 
 `--remote` fuerza OpenRouter (falla si no hay `OPENROUTER_API_KEY`).
@@ -684,7 +685,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - `chunkMarkdown` divide por encabezados y parte secciones largas con solape.
 - Cada chunk se embebe con `bge-m3` por lotes y se guarda en la tabla `notes` de LanceDB (`note_path`, `chunk_index`, `vector`, `text`, `title`, `tags`, `category`, `updated_at`).
 - Se guarda un hash por archivo en `data/index-state.json`; si no cambió, no se reindexa.
-- El watcher (`chokidar`, debounce 500 ms) sincroniza ediciones manuales del vault, ignorando `.obsidian/` y `.trash/`. Si creas una nota a mano sin numeración (`Mi idea.md`), la renombra a `NNNN-slug-DDMMAA.md`, añade `note_number`/`aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni `Estudios/`.
+- El watcher (`chokidar`, debounce 500 ms) sincroniza ediciones manuales del vault, ignorando `.obsidian/` y `.trash/`. Si creas una nota a mano sin numeración (`Mi idea.md`), la renombra a `NNNN-slug-DDMMAA.md`, añade `note_number`/`aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni los estudios generados (`Estudios/AAAA-MM-DD-cluster-*.md`); una nota manual dentro de `Estudios/` sí se renumera. Para las notas que ya existían antes de activar esto: `npm run cli -- normalize` (o `/reindex` desde Telegram, que renumera antes de indexar).
 
 ## Solución de problemas
 

@@ -14,6 +14,7 @@ Uso:
   npm run cli -- query "¿qué anoté sobre X?"
   npm run cli -- notes [texto]
   npm run cli -- reindex
+  npm run cli -- normalize [--dry-run]
   npm run cli -- usage
 
 Opciones:
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
     options: {
       remote: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
+      'dry-run': { type: 'boolean', default: false },
     },
   });
 
@@ -84,6 +86,30 @@ async function main(): Promise<void> {
       }
       case 'usage': {
         console.log(formatUsageReport(await runtime.usage.snapshot()));
+        break;
+      }
+      case 'normalize': {
+        if (values['dry-run']) {
+          const pending = await runtime.obsidian.normalizeAllNotesPreview();
+          if (pending.length === 0) console.log('Todas las notas ya siguen la numeración.');
+          else {
+            console.log(`Se renumerarían ${pending.length} nota(s):`);
+            for (const item of pending) console.log(`- ${item}`);
+          }
+          break;
+        }
+        const result = await runtime.obsidian.normalizeAllNotes();
+        console.log(`Renumeradas: ${result.renamed.length} · fallidas: ${result.failed.length}`);
+        for (const item of result.renamed) {
+          console.log(`- ${path.basename(item.from)} → ${path.basename(item.to)}`);
+        }
+        for (const item of result.failed) console.log(`✗ ${item.path}: ${item.error}`);
+        if (result.renamed.length > 0) {
+          const reindex = await runtime.indexer.reindexAll();
+          console.log(
+            `Reindexadas: ${reindex.indexed} · sin cambios: ${reindex.skipped} · eliminadas: ${reindex.removed} · fallidas: ${reindex.failed}`,
+          );
+        }
         break;
       }
       case 'reindex': {

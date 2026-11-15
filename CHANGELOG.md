@@ -8,7 +8,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 
-- El watcher asigna numeración automática a las notas nuevas creadas a mano en Obsidian: renombra a `NNNN-slug-DDMMAA.md`, añade `note_number` y `aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni `Estudios/`.
+- Nuevo `npm run cli -- normalize [--dry-run]` para renumerar las notas que ya existían; `/reindex` también renumera antes de indexar.
+- El watcher asigna numeración automática a las notas nuevas creadas a mano en Obsidian: renombra a `NNNN-slug-DDMMAA.md`, añade `note_number` y `aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni los estudios generados; una nota manual dentro de `Estudios/` sí se renumera.
 
 ### Corregido
 
