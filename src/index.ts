@@ -60,7 +60,10 @@ async function main(): Promise<void> {
 
     // El watcher necesita el bot ya inicializado: si el token falla, no debe
     // quedar un proceso vivo sin bot escuchando.
-    watcher = new WatcherService({ notesDir: env.OBSIDIAN_VAULT_PATH }, runtime.indexer);
+    watcher = new WatcherService(
+      { notesDir: env.OBSIDIAN_VAULT_PATH, normalizer: runtime.obsidian },
+      runtime.indexer,
+    );
     watcher.start();
 
     reviewScheduler = new ReviewSchedulerService(

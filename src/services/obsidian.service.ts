@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { slugify } from '../lib/text.js';
@@ -207,8 +207,86 @@ export class ObsidianService {
       );
   }
 
+  /**
+   * Asigna numeración a una nota creada a mano en Obsidian.
+   *
+   * Solo actúa sobre archivos nuevos sin prefijo `NNNN` ni formato
+   * `NNNN-slug-DDMMAA.md`. Las carpetas gestionadas por Idearium
+   * (`Palacios/` y `Estudios/`) se dejan intactas.
+   */
+  async normalizeNewNote(filePath: string): Promise<string> {
+    const root = path.resolve(this.config.vaultPath);
+    const absolute = path.resolve(filePath);
+    if (absolute !== root && !absolute.startsWith(`${root}${path.sep}`)) return filePath;
+
+    const relative = path.relative(root, absolute);
+    if (!relative || relative.startsWith('..')) return filePath;
+    const topFolder = relative.split(path.sep)[0];
+    if (topFolder === 'Palacios' || topFolder === 'Estudios') return filePath;
+
+    const base = path.basename(absolute, '.md');
+    if (isNumberedNoteName(base)) return filePath;
+
+    const raw = await readFile(absolute, 'utf8');
+    let parsed: ReturnType<typeof matter>;
+    try {
+      parsed = matter(raw);
+    } catch {
+      return filePath;
+    }
+
+    const fallbackTitle = base.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const title =
+      typeof parsed.data.title === 'string' && parsed.data.title.trim()
+        ? parsed.data.title.trim()
+        : fallbackTitle || 'Nota';
+    const slug = slugify(title) || 'nota';
+    const fileDate = await stat(absolute)
+      .then((info) => info.mtime)
+      .catch(() => new Date());
+    const date = formatNoteDate(fileDate);
+    const aliases = Array.isArray(parsed.data.aliases)
+      ? parsed.data.aliases.map(String)
+      : parsed.data.aliases
+        ? [String(parsed.data.aliases)]
+        : [];
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const noteNumber = await this.nextNoteNumber();
+      const candidate = path.join(
+        path.dirname(absolute),
+        `${formatNoteNumber(noteNumber)}-${slug}-${date}.md`,
+      );
+      const frontmatter = {
+        ...parsed.data,
+        ...(typeof parsed.data.title === 'string' && parsed.data.title.trim() ? {} : { title }),
+        note_number: noteNumber,
+        aliases: [...new Set([formatNoteNumber(noteNumber), ...aliases])],
+      };
+      try {
+        await writeFile(candidate, matter.stringify(parsed.content, frontmatter), {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+        throw error;
+      }
+
+      try {
+        await unlink(absolute);
+      } catch (error) {
+        await unlink(candidate).catch(() => undefined);
+        throw error;
+      }
+      return candidate;
+    }
+
+    throw new Error('No se pudo asignar un número libre a la nota nueva.');
+  }
+
   /** Siguiente número global del vault, mirando el prefijo de cada .md. */
-  private async nextNoteNumber(): Promise<number> {
+  async nextNoteNumber(): Promise<number> {
     let max = 0;
     for (const file of await this.listMarkdownFiles()) {
       const name = path.basename(file);
@@ -225,6 +303,12 @@ export class ObsidianService {
     }
     return max + 1;
   }
+}
+
+/** ¿El nombre ya sigue la convención NNNN-slug-DDMMAA o el prefijo del curso? */
+export function isNumberedNoteName(name: string): boolean {
+  const base = name.replace(/\.md$/i, '');
+  return /^\d{4,}-.+-(\d{6})$/.test(base) || /^\d{4,}\s/.test(base);
 }
 
 export function formatNoteNumber(value: number): string {

@@ -370,7 +370,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencias, modelos, STT, vault, token, LanceDB
-npm test         # 174 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla, repaso espaciado)
+npm test         # 179 tests (schemas, selector multi-nota, chunking, frontmatter, clasificación, palacios, indexer, RAG, bot, STT, semilla, repaso espaciado)
 npm run smoke    # E2E en vault temporal: crea, indexa y consulta una nota
 ```
 
@@ -684,7 +684,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - `chunkMarkdown` divide por encabezados y parte secciones largas con solape.
 - Cada chunk se embebe con `bge-m3` por lotes y se guarda en la tabla `notes` de LanceDB (`note_path`, `chunk_index`, `vector`, `text`, `title`, `tags`, `category`, `updated_at`).
 - Se guarda un hash por archivo en `data/index-state.json`; si no cambió, no se reindexa.
-- El watcher (`chokidar`, debounce 500 ms) sincroniza ediciones manuales del vault, ignorando `.obsidian/` y `.trash/`.
+- El watcher (`chokidar`, debounce 500 ms) sincroniza ediciones manuales del vault, ignorando `.obsidian/` y `.trash/`. Si creas una nota a mano sin numeración (`Mi idea.md`), la renombra a `NNNN-slug-DDMMAA.md`, añade `note_number`/`aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni `Estudios/`.
 
 ## Solución de problemas
 

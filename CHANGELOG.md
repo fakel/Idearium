@@ -6,7 +6,13 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- El watcher asigna numeración automática a las notas nuevas creadas a mano en Obsidian: renombra a `NNNN-slug-DDMMAA.md`, añade `note_number` y `aliases` al frontmatter y conserva el contenido. No toca `Palacios/` ni `Estudios/`.
+
 ### Corregido
+
+- El watcher ahora vigila la carpeta del vault en lugar de un glob: Chokidar 6 ya no resuelve `**/*.md`, por lo que las notas manuales nuevas no se detectaban.
 
 - El instalador configura `NODE_OPTIONS=--no-network-family-autoselection` en systemd: Node 24 podía quedarse sin arrancar el bot tras un reinicio porque la selección automática de IPv4/IPv6 no lograba conectar con Telegram.
 

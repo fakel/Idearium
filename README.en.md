@@ -371,7 +371,7 @@ ollama pull bge-m3
 
 ```bash
 npm run doctor   # dependencies, models, STT, vault, token, LanceDB
-npm test         # 174 tests (schemas, multi-note selector, chunking, frontmatter, classification, palaces, indexer, RAG, bot, STT, seed, spaced repetition)
+npm test         # 179 tests (schemas, multi-note selector, chunking, frontmatter, classification, palaces, indexer, RAG, bot, STT, seed, spaced repetition)
 npm run smoke    # E2E in a temporary vault: create, index, and query a note
 ```
 
@@ -687,7 +687,7 @@ audio_file: /…/data/audio/2026-11-05/….ogg
 - `chunkMarkdown` splits by headings and splits long sections with overlap.
 - Each chunk is embedded with `bge-m3` in batches and stored in the `notes` table of LanceDB (`note_path`, `chunk_index`, `vector`, `text`, `title`, `tags`, `category`, `updated_at`).
 - A hash per file is stored in `data/index-state.json`; if it has not changed, it is not reindexed.
-- The watcher (`chokidar`, 500 ms debounce) syncs manual edits to the vault, ignoring `.obsidian/` and `.trash/`.
+- The watcher (`chokidar`, 500 ms debounce) syncs manual edits to the vault, ignoring `.obsidian/` and `.trash/`. If you create an unnumbered note by hand (`My idea.md`), it renames it to `NNNN-slug-DDMMAA.md`, adds `note_number`/`aliases` to the frontmatter, and keeps the content. It leaves `Palacios/` and `Estudios/` alone.
 
 ## Troubleshooting
 
